@@ -11,6 +11,7 @@
 #define ERROR 1
 #define BUFLEN 1024
 #define TIMELEN 4
+#define CAPLEN 2
 
 //If there's any sort of error the program exits immediately.
 int errexit (char *format, char *arg){
@@ -23,19 +24,50 @@ char* processPacket(FILE* trace_file){
 	char* processed_packet = malloc(4);
 	char buffer[BUFLEN];
 	char time_stamp[TIMELEN];
-	int first_time;
+	char caplen[CAPLEN];
+	int packet_length;
+	int time;
 	bzero(buffer, BUFLEN);
     bool done = false;
     while(!done){
-    	if(fread(buffer, 1, TIMELEN, trace_file)>0){
+    	if(fread(buffer, 1, CAPLEN, trace_file)>0){
+    		//find out how long packet is;
+    		memcpy(caplen, buffer, CAPLEN);
+    		memcpy(&packet_length, caplen,CAPLEN);
+		   	packet_length = ntohs(packet_length);
+
+		   	//read out ignored bytes
+		   	bzero(buffer, BUFLEN);
+		   	fread(buffer, 1, CAPLEN, trace_file);
 	   		bzero(buffer, BUFLEN);
+
+	   		//read out the time
 	    	fread(buffer, 1, TIMELEN, trace_file);
 	    	memcpy(time_stamp, buffer, TIMELEN);
-		   	memcpy(&first_time, time_stamp,TIMELEN);
-		   	first_time = ntohl(first_time);
-		   	sprintf(processed_packet, "%d",(int) first_time);
-		   	first_time = ntohl(first_time);
+		   	memcpy(&time, time_stamp,TIMELEN);
+		   	time = ntohl(time);
+		   	
+		   	//Read out remainder of metadata
+		   	bzero(buffer, BUFLEN);
+		    fread(buffer, 1, TIMELEN, trace_file);
+		    
+		    int index=0;
+		    while(index<packet_length){
+		    	bzero(buffer, BUFLEN);
+		    	if(BUFLEN>packet_length){
+		    		fread(buffer, 1, packet_length, trace_file);
+		    		index += packet_length;
+		    	}
+		    	else{
+		    		fread(buffer, 1, BUFLEN, trace_file);
+		    		index += BUFLEN;
+		    	}
+		    }
+		    	
+
 		    done = true;
+		    sprintf(processed_packet, "%d",(int) time);
+		   	time = ntohl(time);
 	    }
 	    else{
 	    	return NULL;
@@ -52,11 +84,17 @@ unsigned char* summary(char* filename){
     	fflush(stdout);
         return NULL;
     }
-    char* first_time = processPacket(file);
-    char* last_time = malloc(TIMELEN);
+    
+    int packet_num = 0;
+    char* first_time = malloc(TIMELEN);
+  	char* last_time = malloc(TIMELEN);
     char* next_time = malloc(TIMELEN);
     while((next_time = processPacket(file)) != NULL){
-    	memcpy(last_time, next_time, TIMELEN);
+    	if(packet_num==0){
+    		sprintf(first_time, "%s", next_time);
+    	}
+    	sprintf(last_time, "%s", next_time);
+    	packet_num++;
     }
     printf("%s, %s\n", first_time, last_time);
     if(fclose(file)<0)
