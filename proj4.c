@@ -19,6 +19,32 @@ int errexit (char *format, char *arg){
     exit (ERROR);
 }
 
+char* processPacket(FILE* trace_file){
+	char* processed_packet = malloc(4);
+	char buffer[BUFLEN];
+	char time_stamp[TIMELEN];
+	int first_time;
+	bzero(buffer, BUFLEN);
+    bool done = false;
+    while(!done){
+    	if(fread(buffer, 1, TIMELEN, trace_file)>0){
+	   		bzero(buffer, BUFLEN);
+	    	fread(buffer, 1, TIMELEN, trace_file);
+	    	memcpy(time_stamp, buffer, TIMELEN);
+		   	memcpy(&first_time, time_stamp,TIMELEN);
+		   	first_time = ntohl(first_time);
+		   	sprintf(processed_packet, "%d",(int) first_time);
+		   	first_time = ntohl(first_time);
+		    done = true;
+	    }
+	    else{
+	    	return NULL;
+	    }
+	    
+    }
+    return processed_packet;
+}
+
 unsigned char* summary(char* filename){
     FILE* file = fopen(filename, "r");
     if(file == NULL){
@@ -26,38 +52,19 @@ unsigned char* summary(char* filename){
     	fflush(stdout);
         return NULL;
     }
-
-    unsigned char buffer[BUFLEN];
-    unsigned char time_stamp[TIMELEN];
-    unsigned int first_time;
-    bzero(buffer, BUFLEN);
-    bool done = false;
-    while(!done){
-        fread(buffer, 1, TIMELEN, file);
-   		bzero(buffer, BUFLEN);
-    	fread(buffer, 1, TIMELEN, file);
-
-    	memcpy(time_stamp, buffer, TIMELEN);
-
-    	int i=0;
-    	for(; i<TIMELEN; i++){
-    		printf("%02x", time_stamp[i]);
-    	}
-    	printf("\n");
-
-	   	memcpy(&first_time, time_stamp,TIMELEN);
-	   	first_time = ntohl(first_time);
-	   	printf("%d\n",(int) first_time);
-	   	first_time = ntohl(first_time);
-	    done = true;
-	    //printf("%ld\n", first_time);
-	    fflush(stdout);
-	    
+    char* first_time = processPacket(file);
+    char* last_time = malloc(TIMELEN);
+    char* next_time = malloc(TIMELEN);
+    while((next_time = processPacket(file)) != NULL){
+    	memcpy(last_time, next_time, TIMELEN);
     }
+    printf("%s, %s\n", first_time, last_time);
     if(fclose(file)<0)
         errexit("Error closing file", NULL);
     return NULL;
 }
+
+
 
 //Here is the main method, it processes the command and runs the tool
 int main(int argc, char *argv[]){
@@ -128,4 +135,5 @@ int main(int argc, char *argv[]){
 			summary(trace_file);
 		}
 	}	
+	return 0;
 }
