@@ -4,7 +4,6 @@
 //11/10/18
 #include <stdio.h>
 #include <string.h>
-#include <strings.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <arpa/inet.h>
@@ -30,27 +29,25 @@ unsigned char* summary(char* filename){
 
     unsigned char buffer[BUFLEN];
     unsigned char time_stamp[TIMELEN];
-    unsigned long first_time;
+    unsigned int first_time;
     bzero(buffer, BUFLEN);
     bool done = false;
     while(!done){
         fread(buffer, 1, TIMELEN, file);
    		bzero(buffer, BUFLEN);
     	fread(buffer, 1, TIMELEN, file);
+
+    	memcpy(time_stamp, buffer, TIMELEN);
+
     	int i=0;
-    	for(; i<TIMELEN; i++){
-    		printf("%02x", buffer[i]);
-    	}
-    	printf("\n");
-
-    	bcopy(time_stamp, buffer, TIMELEN);
-
     	for(; i<TIMELEN; i++){
     		printf("%02x", time_stamp[i]);
     	}
     	printf("\n");
 
-	   	first_time = (unsigned long) time_stamp;
+	   	memcpy(&first_time, time_stamp,TIMELEN);
+	   	first_time = ntohl(first_time);
+	   	printf("%d\n",(int) first_time);
 	   	first_time = ntohl(first_time);
 	    done = true;
 	    //printf("%ld\n", first_time);
