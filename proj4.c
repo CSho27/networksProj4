@@ -24,7 +24,9 @@ int errexit (char *format, char *arg){
 }
 
 char* processPacket(FILE* trace_file){
-	char* processed_packet = malloc(4);
+	char* processed_packet = malloc(MINI_BUFLEN);
+	bzero(processed_packet, MINI_BUFLEN);
+
 	char buffer[BUFLEN];
 	char time_stamp[TIMELEN];
 	char caplen[CAPLEN];
@@ -89,22 +91,64 @@ char* processPacket(FILE* trace_file){
 	    		index += BUFLEN;
 	    	}
 	    }
-
-	    sprintf(processed_packet, "%d.%d,%d", time, millis, ip);
+	    sprintf(processed_packet, "%d.%d,%d,%d,", time, millis, ip, packet_length);
     }
     else{
     	return NULL;
     }
-	    
+
     return processed_packet;
+    
 }
 
-unsigned char* summary(char* filename){
+int length(char* filename){
     FILE* file = fopen(filename, "r");
     if(file == NULL){
     	printf("File not there");
     	fflush(stdout);
-        return NULL;
+        return -1;
+    }
+
+	char* next = malloc(MINI_BUFLEN*2);
+	char time[MINI_BUFLEN];
+	char caplen[MINI_BUFLEN];
+	bool ip = false;; 
+
+    while((next = processPacket(file)) != NULL){
+
+    	int index = 0;
+    	int i;
+		while(next[index] != ','){
+			time[i] = next[index];
+			i++;
+			index++;
+		}
+		time[i] = '\0';
+
+		index++;
+		ip = (next[index] == '1');
+
+		index += 2;
+		i = 0;
+		while(next[index] != ','){
+			caplen[i] = next[index];
+			i++;
+			index++;
+		}
+		caplen[i] = '\0';
+
+		if(ip)
+			printf("%s %s\n", time, caplen);
+    }
+    //if(fclose(file)<0)
+       // errexit("Error closing file", NULL);
+    return 0;
+}
+
+int summary(char* filename){
+    FILE* file = fopen(filename, "r");
+    if(file == NULL){
+        return -1;
     }
     
     int packet_num = 0;
@@ -135,7 +179,8 @@ unsigned char* summary(char* filename){
     fflush(stdout);
     //if(fclose(file)<0)
        // errexit("Error closing file", NULL);
-    return NULL;
+
+    return 0;
 }
 
 
@@ -206,7 +251,12 @@ int main(int argc, char *argv[]){
 	}
 	if(trace_present && valid_mode == 1){
 		if(summary_mode){
-			summary(trace_file);
+			if(summary(trace_file)<0)
+				errexit("ERROR: Summary mode failed. Could not find file speicified.", NULL);
+		}
+		if(length_analysis){
+			if(length(trace_file)<0)
+				errexit("ERROR: Summary mode failed. Could not find file speicified.", NULL);
 		}
 	}	
 	return 0;
