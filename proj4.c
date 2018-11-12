@@ -12,6 +12,9 @@
 #define BUFLEN 1024
 #define TIMELEN 4
 #define CAPLEN 2
+#define TYPELEN 2
+#define ETH_BEGIN 12
+#define MINI_BUFLEN 32
 
 //If there's any sort of error the program exits immediately.
 int errexit (char *format, char *arg){
@@ -25,55 +28,74 @@ char* processPacket(FILE* trace_file){
 	char buffer[BUFLEN];
 	char time_stamp[TIMELEN];
 	char caplen[CAPLEN];
+	unsigned char type[TYPELEN];
+	bool ip = true;
+	const int IP[] = {0x08, 0x00};
 	int packet_length;
 	int time;
+	int millis;
 	bzero(buffer, BUFLEN);
-    bool done = false;
-    while(!done){
-    	if(fread(buffer, 1, CAPLEN, trace_file)>0){
-    		//find out how long packet is;
-    		memcpy(caplen, buffer, CAPLEN);
-    		memcpy(&packet_length, caplen,CAPLEN);
-		   	packet_length = ntohs(packet_length);
 
-		   	//read out ignored bytes
-		   	bzero(buffer, BUFLEN);
-		   	fread(buffer, 1, CAPLEN, trace_file);
-	   		bzero(buffer, BUFLEN);
+	if(fread(buffer, 1, CAPLEN, trace_file)>0){
+		//find out how long packet is;
+		memcpy(caplen, buffer, CAPLEN);
+		memcpy(&packet_length, caplen,CAPLEN);
+	   	packet_length = ntohs(packet_length);
 
-	   		//read out the time
-	    	fread(buffer, 1, TIMELEN, trace_file);
-	    	memcpy(time_stamp, buffer, TIMELEN);
-		   	memcpy(&time, time_stamp,TIMELEN);
-		   	time = ntohl(time);
-		   	
-		   	//Read out remainder of metadata
-		   	bzero(buffer, BUFLEN);
-		    fread(buffer, 1, TIMELEN, trace_file);
-		    
-		    int index=0;
-		    while(index<packet_length){
-		    	bzero(buffer, BUFLEN);
-		    	if(BUFLEN>packet_length){
-		    		fread(buffer, 1, packet_length, trace_file);
-		    		index += packet_length;
-		    	}
-		    	else{
-		    		fread(buffer, 1, BUFLEN, trace_file);
-		    		index += BUFLEN;
-		    	}
-		    }
-		    	
+	   	//read out ignored bytes
+	   	bzero(buffer, BUFLEN);
+	   	fread(buffer, 1, CAPLEN, trace_file);
+   		bzero(buffer, BUFLEN);
 
-		    done = true;
-		    sprintf(processed_packet, "%d",(int) time);
-		   	time = ntohl(time);
-	    }
-	    else{
-	    	return NULL;
+   		//read out the time in seconds
+    	fread(buffer, 1, TIMELEN, trace_file);
+    	memcpy(time_stamp, buffer, TIMELEN);
+	   	memcpy(&time, time_stamp,TIMELEN);
+	   	time = ntohl(time);		   	
+	   	
+	   	//Read out time in milliseconds
+	   	bzero(buffer, BUFLEN);
+	    fread(buffer, 1, TIMELEN, trace_file);
+	    memcpy(time_stamp, buffer, TIMELEN);
+	   	memcpy(&millis, time_stamp,TIMELEN);
+	   	millis = ntohl(millis);
+	    
+	    //ignore beginning of ethernet header
+	    int index=0;
+	    fread(buffer, 1, ETH_BEGIN, trace_file);
+	    index = ETH_BEGIN;
+	    bzero(buffer, BUFLEN);
+
+	    fread(buffer, 1, TYPELEN, trace_file);
+	    memcpy(type, buffer, TYPELEN);
+	    index += TYPELEN;
+
+	    
+	    int i = 0;
+	    for(; i< TYPELEN; i++){
+	    	if(type[i] != IP[i])
+	    		ip = false;
 	    }
 	    
+
+	    while(index<packet_length){
+	    	bzero(buffer, BUFLEN);
+	    	if(BUFLEN>(packet_length-index)){
+	    		fread(buffer, 1, (packet_length-index), trace_file);
+	    		index += (packet_length-index);
+	    	}
+	    	else{
+	    		fread(buffer, 1, BUFLEN, trace_file);
+	    		index += BUFLEN;
+	    	}
+	    }
+
+	    sprintf(processed_packet, "%d.%d,%d", time, millis, ip);
     }
+    else{
+    	return NULL;
+    }
+	    
     return processed_packet;
 }
 
@@ -86,19 +108,33 @@ unsigned char* summary(char* filename){
     }
     
     int packet_num = 0;
-    char* first_time = malloc(TIMELEN);
-  	char* last_time = malloc(TIMELEN);
-    char* next_time = malloc(TIMELEN);
-    while((next_time = processPacket(file)) != NULL){
+    char* first_time = malloc(MINI_BUFLEN);
+  	char* last_time = malloc(MINI_BUFLEN);
+    char* next = malloc(MINI_BUFLEN);
+    int ip_packets = 0;
+    while((next = processPacket(file)) != NULL){
+    	int i = 0;
     	if(packet_num==0){
-    		sprintf(first_time, "%s", next_time);
+    		while(next[i] != ','){
+    			first_time[i] = next[i];
+    			i++;
+    		}
+    		first_time[i] = '\0';
+
     	}
-    	sprintf(last_time, "%s", next_time);
+    	while(next[i] != ','){
+    			last_time[i] = next[i];
+    			i++;
+    		}
+    		last_time[i] = '\0';
+    		if(next[i+1] == '1')
+    			ip_packets++;
     	packet_num++;
     }
-    printf("%s, %s\n", first_time, last_time);
-    if(fclose(file)<0)
-        errexit("Error closing file", NULL);
+    printf("TIME SPAN: %s - %s\nTOTAL PACKETS: %d\nIP PACKETS: %d\n", first_time, last_time, packet_num, ip_packets);
+    fflush(stdout);
+    //if(fclose(file)<0)
+       // errexit("Error closing file", NULL);
     return NULL;
 }
 
