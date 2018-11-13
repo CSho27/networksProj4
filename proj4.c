@@ -27,8 +27,7 @@
 #define IP_MIDLEN 5
 
 #define TCP_BEGIN 12
-#define UDP_BEGIN 4
-#define UDPLEN 2
+#define UDPLEN 8
 
 
 //If there's any sort of error the program exits immediately.
@@ -82,6 +81,7 @@ char* processPacket(FILE* trace_file){
 	int trans_hl_length = 0;
 	int time;
 	int millis;
+	int payload_len = 0;
 	double real_time = 0;
 
 	char str_iphl[MINI_BUFLEN];
@@ -190,6 +190,7 @@ char* processPacket(FILE* trace_file){
 		   		//read out the 'offset' value for trans_hl_length
 		   		if(protocol != 'T' && protocol != 'U'){
 		   			trans_hl_length = -1;
+		   			payload_len = -1;
 		   		}
 		   		else{
 		   			if(protocol == 'T'){
@@ -205,17 +206,9 @@ char* processPacket(FILE* trace_file){
 			    		index += 1;
 			    	}
 			    	else{
-			    		fread(buffer, 1, UDP_BEGIN, trace_file);
-				   		bzero(buffer, BUFLEN);
-				   		index +=UDP_BEGIN;
-
-			   			fread(buffer, 1, UDPLEN, trace_file);
-			    		memcpy(trans_hl, buffer, UDPLEN);
-				    	memcpy(&trans_hl_length, trans_hl, UDPLEN);
-				   		trans_hl_length = ntohs(trans_hl_length);
-				   		bzero(buffer, BUFLEN);
-				   		index += UDPLEN;
+			    		trans_hl_length = UDPLEN;
 			    	}
+			    	payload_len = ip_length - iph_length - trans_hl_length;
 		   		}
 		    }
 	    }
@@ -231,7 +224,7 @@ char* processPacket(FILE* trace_file){
 	    		index += BUFLEN;
 	    	}
 	    }
-	    sprintf(processed_packet, "%lf,%d,%d,%d,%d,%c,%d,", real_time, ip, packet_length, ip_length, iph_length, protocol, trans_hl_length);
+	    sprintf(processed_packet, "%lf,%d,%d,%d,%d,%c,%d,%d,", real_time, ip, packet_length, ip_length, iph_length, protocol, trans_hl_length, payload_len);
     }
     else{
     	return NULL;
@@ -255,6 +248,7 @@ int length(char* filename){
 	char iplen[MINI_BUFLEN];
 	char iphlen[MINI_BUFLEN];
 	char trans_hl[MINI_BUFLEN];
+	char payload_len[MINI_BUFLEN];
 	char protocol;
 	bool ip = false;; 
 
@@ -346,8 +340,32 @@ int length(char* filename){
 		}
 		trans_hl[i] = '\0';
 
+		index++;
+		i = 0;
+		if(next[index] == '-'){
+			payload_len[i] = '?';
+			i++;
+			index += 2;
+		}
+		else{
+			if(next[index] == '0'){
+				payload_len[i] = '-';
+				i++;
+				index++;
+			}
+			else{
+				while(next[index] != ','){
+					payload_len[i] = next[index];
+					i++;
+					index++;
+				}
+			}
+		}
+		payload_len[i] = '\0';
+
+
 		if(ip)
-			printf("%s %s %s %s %c %s\n", time, caplen, iplen, iphlen, protocol, trans_hl);
+			printf("%s %s %s %s %c %s %s\n", time, caplen, iplen, iphlen, protocol, trans_hl, payload_len);
     }
     //if(fclose(file)<0)
        // errexit("Error closing file", NULL);
