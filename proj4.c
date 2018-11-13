@@ -24,15 +24,27 @@
 #define IPHLEN 1
 #define IPLEN 2
 #define PROTOLEN 1
-#define IP_MIDLEN 5
+#define IP_MIDLEN 4
 #define IP_CHECKSUM_LEN 2
 #define IP_ADDR_LEN 4
+#define TTL_LEN 1
+#define PORTLEN 2
+#define ADDR1 0
+#define ADDR2 1
+#define ADDR3 2
+#define ADDR4 3
 
-#define TCP_BEGIN 12
+#define TCP_BEGIN 8
+#define SEQLEN 4
+#define ACKLEN 4
+#define WINDOWLEN 2
 #define TCP_PORT 2
 #define UDPLEN 8
 
 #define SKIP_TO_TCP 8
+
+#define ASCII_NUM 48
+#define HEX_VAL 16
 
 
 
@@ -52,6 +64,74 @@ int printHex(unsigned char hex[], int n){
 	printf("\n");
 
 	return i;
+}
+
+int hexToInt(unsigned char* hex, int byte_flip){
+	char int_str[IP_ADDR_LEN];
+	int integer;
+	int x, y;
+	sprintf(int_str, "%02x", hex[0]);
+
+	if(byte_flip == 1){
+		x = 1;
+		y = HEX_VAL;
+	}
+	else{
+		x = HEX_VAL;
+		y = 1;
+	}
+	if(int_str[0] >= '0' && int_str[0] <= '9'){
+		integer = x*(((int) int_str[0])-ASCII_NUM);
+	}
+	else{
+	switch(int_str[0]){
+		case 'a':
+			integer = x*10;
+			break;
+		case 'b':
+			integer = x*11;
+			break;
+		case 'c':
+			integer = x*12;
+			break;
+		case 'd':
+			integer = x*13;
+			break;
+		case 'e':
+			integer = x*14;
+			break;
+		case 'f':
+			integer = x*15;
+			break;
+		}
+	}
+
+	if(int_str[1] >= '0' && int_str[1] <= '9'){
+		integer += y*(((int) int_str[1])-ASCII_NUM);
+	}
+	else{
+	switch(int_str[1]){
+		case 'a':
+			integer += y*10;
+			break;
+		case 'b':
+			integer += y*11;
+			break;
+		case 'c':
+			integer += y*12;
+			break;
+		case 'd':
+			integer += y*13;
+			break;
+		case 'e':
+			integer += y*14;
+			break;
+		case 'f':
+			integer += y*15;
+			break;
+		}
+	}
+	return integer;
 }
 
 bool compareHex(unsigned char hex1[], unsigned char hex2[], int n){
@@ -78,6 +158,11 @@ char* processPacket(FILE* trace_file){
 	unsigned char trans_hl[1]; 
 	unsigned char src_ip[IP_ADDR_LEN];
 	unsigned char dest_ip[IP_ADDR_LEN];
+	unsigned char src_port[PORTLEN];
+	unsigned char dest_port[PORTLEN];
+	unsigned char ttl[TTL_LEN];
+	unsigned char seq[SEQLEN];
+	unsigned char ack[ACKLEN];
 
 	bool ip = true;
 
@@ -88,8 +173,13 @@ char* processPacket(FILE* trace_file){
 	int ip_length = -1;
 	int iph_length = -1;
 	int trans_hl_length = 0;
-	unsigned int source_ip;
-	unsigned int destination_ip;
+	unsigned int addr_byte[IP_ADDR_LEN];
+	int source_port;
+	int destination_port;
+	int time_to_live;
+	int sequence;
+	int ack_num;
+
 	int time;
 	int millis;
 	int payload_len = 0;
@@ -97,6 +187,8 @@ char* processPacket(FILE* trace_file){
 
 	char str_iphl[MINI_BUFLEN];
 	char str_trans_hl[MINI_BUFLEN];
+	char source_ip[MINI_BUFLEN];
+	char destination_ip[MINI_BUFLEN];
 
 	char protocol = '-';
 
@@ -176,6 +268,14 @@ char* processPacket(FILE* trace_file){
 		   		index += IP_MIDLEN;
 		   		ip_index += IP_MIDLEN;
 
+		   		//Read TTL
+   				fread(buffer, 1, TTL_LEN, trace_file);
+		    	memcpy(ttl, buffer, TTL_LEN);
+		   		time_to_live = hexToInt(ttl, 1);
+		   		bzero(buffer, BUFLEN);
+		   		index += TTL_LEN;
+		   		ip_index += TTL_LEN;
+
 		   		//Read protocol field from ip header
 		   		fread(buffer, 1, PROTOLEN, trace_file);
 		   		memcpy(proto, buffer, PROTOLEN);
@@ -202,28 +302,28 @@ char* processPacket(FILE* trace_file){
 		   		ip_index += IP_CHECKSUM_LEN;
 
 		   		//read out source IP Address
-		   		printf("IP_INDEX: %d\n", ip_index);
-		   		fread(buffer, 1, IP_ADDR_LEN, trace_file);
-			    memcpy(src_ip, buffer, IP_ADDR_LEN);
-			    printHex(src_ip, IP_ADDR_LEN);
-			   	memcpy(&source_ip, src_ip,IP_ADDR_LEN);
-			   	source_ip = ntohl(source_ip);
-			   	bzero(buffer, BUFLEN);
-		   		index += IP_ADDR_LEN;
-		   		ip_index += IP_ADDR_LEN;
+		   		int i = 0;
+		   		for(; i<IP_ADDR_LEN; i++){
+			   		fread(buffer, 1, 1, trace_file);
+				    memcpy(src_ip, buffer, 1);
+			   		addr_byte[i] = hexToInt(src_ip, 0);
+				   	bzero(buffer, BUFLEN);
+			   		index ++;
+			   		ip_index ++;
+			   	}
+			   	sprintf(source_ip, "%d.%d.%d.%d", addr_byte[ADDR1], addr_byte[ADDR2], addr_byte[ADDR3], addr_byte[ADDR4]);
 
 		   		//read out destination IP address
-		   		printf("IP_INDEX: %d\n", ip_index);
-		   		fread(buffer, 1, IP_ADDR_LEN, trace_file);
-			    memcpy(dest_ip, buffer, IP_ADDR_LEN);
-			    printHex(dest_ip, IP_ADDR_LEN);
-			   	memcpy(&destination_ip, dest_ip,IP_ADDR_LEN);
-			   	destination_ip = ntohl(destination_ip);
-			   	bzero(buffer, BUFLEN);
-		   		index += IP_ADDR_LEN;
-		   		ip_index += IP_ADDR_LEN;
-
-		   		printf("src: %d, dest: %d\n", source_ip, destination_ip);
+		   		i = 0;
+		   		for(; i<IP_ADDR_LEN; i++){
+			   		fread(buffer, 1, 1, trace_file);
+				    memcpy(dest_ip, buffer, 1);
+			   		addr_byte[i] = hexToInt(dest_ip, 0);
+				   	bzero(buffer, BUFLEN);
+			   		index ++;
+			   		ip_index ++;
+			   	}
+			   	sprintf(destination_ip, "%d.%d.%d.%d", addr_byte[ADDR1], addr_byte[ADDR2], addr_byte[ADDR3], addr_byte[ADDR4]);
 
 				//ignore rest of IP Bytes
 		   		fread(buffer, 1, iph_length - ip_index, trace_file);
@@ -239,10 +339,37 @@ char* processPacket(FILE* trace_file){
 		   		}
 		   		else{
 		   			if(protocol == 'T'){
-			   			fread(buffer, 1, TCP_BEGIN, trace_file);
+		   				//Read Source port
+		   				fread(buffer, 1, PORTLEN, trace_file);
+				    	memcpy(src_port, buffer, PORTLEN);
+				    	memcpy(&source_port, src_port,PORTLEN);
+				   		source_port = ntohs(source_port);
 				   		bzero(buffer, BUFLEN);
-				   		index += TCP_BEGIN;
+				   		index += PORTLEN;
 
+				   		//Read destination port
+				   		fread(buffer, 1, PORTLEN, trace_file);
+				    	memcpy(dest_port, buffer, PORTLEN);
+				    	memcpy(&destination_port, dest_port,PORTLEN);
+				   		destination_port = ntohs(destination_port);
+				   		bzero(buffer, BUFLEN);
+				   		index += PORTLEN;
+
+				   		//Read sequence number
+				   		fread(buffer, 1, SEQLEN, trace_file);
+				    	memcpy(seq, buffer, SEQLEN);
+				    	memcpy(&sequence, seq, SEQLEN);
+				   		bzero(buffer, BUFLEN);
+				   		index += SEQLEN;
+
+				   		//Read ack number
+				   		fread(buffer, 1, ACKLEN, trace_file);
+				    	memcpy(ack, buffer, ACKLEN);
+				    	memcpy(&ack_num, ack, ACKLEN);
+				   		bzero(buffer, BUFLEN);
+				   		index += ACKLEN;
+
+				   		//Read offset value from tcp
 			   			fread(buffer, 1, 1, trace_file);
 			    		memcpy(trans_hl, buffer, 1);
 			    		sprintf(str_trans_hl, "%02x", trans_hl[0]);
@@ -270,7 +397,8 @@ char* processPacket(FILE* trace_file){
 	    		index += BUFLEN;
 	    	}
 	    }
-	    sprintf(processed_packet, "%lf,%d,%d,%d,%d,%c,%d,%d,", real_time, ip, packet_length, ip_length, iph_length, protocol, trans_hl_length, payload_len);
+	    sprintf(processed_packet, "%lf,%d,%d,%d,%d,%c,%d,%d,%s,%s,%d,%d,%d,%d,%d,", real_time, ip, packet_length, ip_length, iph_length, protocol, trans_hl_length, payload_len,
+	    	source_ip, destination_ip, source_port, destination_port, time_to_live, sequence, ack_num);
     }
     else{
     	return NULL;
@@ -289,12 +417,21 @@ int tcpPrint(char* filename){
     }
     char* next = malloc(MINI_BUFLEN*2);
     char time[MINI_BUFLEN];
+    char source_ip[MINI_BUFLEN];
+    char dest_ip[MINI_BUFLEN];
+    char source_port[MINI_BUFLEN];
+    char dest_port[MINI_BUFLEN];
+    char ttl[MINI_BUFLEN];
+    char seq[MINI_BUFLEN];
+    char ack[MINI_BUFLEN];
 
-    bool tcp = false;
+    bool tcp;
 
     while((next = processPacket(file)) != NULL){
+    	tcp = false;
     	int index = 0;
     	int i = 0;
+    	//printf("PP: %s\n", next);
 		while(next[index] != ','){
 			time[i] = next[index];
 			i++;
@@ -319,7 +456,69 @@ int tcpPrint(char* filename){
 				index++;
 			}
 
-			printf("%s \n", time);
+    		i = 0;
+			while(next[index] != ','){
+			source_ip[i] = next[index];
+			i++;
+			index++;
+			}
+			source_ip[i] = '\0';
+
+			index++;
+    		i = 0;
+			while(next[index] != ','){
+			dest_ip[i] = next[index];
+			i++;
+			index++;
+			}
+			dest_ip[i] = '\0';
+
+			index++;
+    		i = 0;
+			while(next[index] != ','){
+			source_port[i] = next[index];
+			i++;
+			index++;
+			}
+			source_port[i] = '\0';
+
+			index++;
+    		i = 0;
+			while(next[index] != ','){
+			dest_port[i] = next[index];
+			i++;
+			index++;
+			}
+			dest_port[i] = '\0';
+
+			index++;
+    		i = 0;
+			while(next[index] != ','){
+			ttl[i] = next[index];
+			i++;
+			index++;
+			}
+			ttl[i] = '\0';
+
+			index++;
+    		i = 0;
+			while(next[index] != ','){
+			seq[i] = next[index];
+			i++;
+			index++;
+			}
+			seq[i] = '\0';
+
+			index++;
+    		i = 0;
+			while(next[index] != ','){
+			ack[i] = next[index];
+			i++;
+			index++;
+			}
+			ack[i] = '\0';
+
+			printf("%s %s %s %s %s %s %s %s\n", time, source_ip, source_port, dest_ip, dest_port, ttl, seq, ack);
 
 
 
