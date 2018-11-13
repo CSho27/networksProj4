@@ -9,16 +9,26 @@
 #include <arpa/inet.h>
 
 #define ERROR 1
-#define BUFLEN 1024
+#define BUFLEN 2048
+#define MINI_BUFLEN 32
 #define TIMELEN 4
 #define CAPLEN 2
+
+#define MIN_ETHERNET 14
 #define TYPELEN 2
 #define ETH_BEGIN 12
-#define MINI_BUFLEN 32
+
+
+#define MIN_IP 34
+#define IPV4_VALUE 40
 #define IPHLEN 1
-#define IPLEN 4
-#define PROTOLEN 2
-#define IP_MIDLEN 10
+#define IPLEN 2
+#define PROTOLEN 1
+#define IP_MIDLEN 5
+
+#define TCP_BEGIN 12
+#define UDP_BEGIN 4
+#define UDPLEN 2
 
 
 //If there's any sort of error the program exits immediately.
@@ -28,27 +38,56 @@ int errexit (char *format, char *arg){
     exit (ERROR);
 }
 
+int printHex(unsigned char hex[], int n){
+	int i = 0;
+	for(; i< n; i++){
+		printf("%02x", hex[i]);
+	}
+	printf("\n");
+
+	return i;
+}
+
+bool compareHex(unsigned char hex1[], unsigned char hex2[], int n){
+	bool same = true;
+	int i = 0;
+    for(; i< n; i++){
+    	if(hex1[i] != hex2[i])
+    		same = false;
+    }
+    return same;
+}
+
 char* processPacket(FILE* trace_file){
 	char* processed_packet = malloc(MINI_BUFLEN);
 	bzero(processed_packet, MINI_BUFLEN);
 
-	char buffer[BUFLEN];
-	char time_stamp[TIMELEN];
-	char caplen[CAPLEN];
-	char iplen[IPLEN];
-	char iphlen[IPHLEN];
+	unsigned char buffer[BUFLEN];
+	unsigned char time_stamp[TIMELEN];
+	unsigned char caplen[CAPLEN];
+	unsigned char iplen[IPLEN];
+	unsigned char iphlen[IPHLEN];
 	unsigned char type[TYPELEN];
 	unsigned char proto[PROTOLEN];
+	unsigned char trans_hl[1]; 
+
 	bool ip = true;
-	const int IP[] = {0x08, 0x00};
-	//const int TCP[] = {0x41, 0xc0, 0x29, 0xa1};
-	//cosnt int UDP[];
+
+	unsigned char IP[] = {0x08, 0x00};
+	unsigned char TCP[] = {0x06};
+	unsigned char UDP[] = {0x11};
 	int packet_length;
 	int ip_length = -1;
 	int iph_length = -1;
+	int trans_hl_length = 0;
 	int time;
 	int millis;
+	double real_time = 0;
 
+	char str_iphl[MINI_BUFLEN];
+	char str_trans_hl[MINI_BUFLEN];
+
+	char protocol = '-';
 
 	bzero(buffer, BUFLEN);
 
@@ -75,77 +114,109 @@ char* processPacket(FILE* trace_file){
 	    memcpy(time_stamp, buffer, TIMELEN);
 	   	memcpy(&millis, time_stamp,TIMELEN);
 	   	millis = ntohl(millis);
+	   	real_time = time + ((double) millis)/1000000;
 	    
 	    int index = 0;
 	    
-	    if(packet_length>14){
-	    	printf("ETH_BEGIN: %d\n", index);
+	    if(packet_length > MIN_ETHERNET){
 		    //ignore beginning of ethernet header
 		    fread(buffer, 1, ETH_BEGIN, trace_file);
 		    index += ETH_BEGIN;
 		    bzero(buffer, BUFLEN);
 
-		    printf("ETH Type: %d\n", index);
 		    //Read type field from Ethernet header
 		    fread(buffer, 1, TYPELEN, trace_file);
 		    memcpy(type, buffer, TYPELEN);
+		    bzero(buffer, BUFLEN);
 		    index += TYPELEN;
 		    
-		    int i = 0;
-		    for(; i< TYPELEN; i++){
-		    	if(type[i] != IP[i])
-		    		ip = false;
-		    }
+		    ip = compareHex(IP, type, TYPELEN);
 
-		    if(ip){
-		    	printf("start IP: %d\n", index);
-		    	//Ignore first 2 bytes of header
-		    	fread(buffer, 1, IPHLEN, trace_file);
-		    	bzero(buffer, BUFLEN);
-		    	index += IPHLEN;
+		    if(ip && packet_length >= MIN_IP){
+		    	int ip_index = 0;
 
-		    	printf("IPHL: %d\n", index);
-		    	//read in ip header length
 		    	fread(buffer, 1, IPHLEN, trace_file);
 		    	memcpy(iphlen, buffer, IPHLEN);
-		    	memcpy(&iph_length, iphlen,IPHLEN);
-		   		iph_length = ntohs(iph_length);
-		    	bzero(buffer, BUFLEN);
+		    	sprintf(str_iphl, "%02x", iphlen[0]);
+		    	iph_length = (atoi(str_iphl)-IPV4_VALUE)*TIMELEN;  
 		    	index += IPHLEN;
+		    	ip_index += IPHLEN;
 
-				printf("IP DS/ECN: %d\n", index);
 		   		//ignore middle bytes of header
 		   		fread(buffer, 1, PROTOLEN, trace_file);
 		   		bzero(buffer, BUFLEN);
 		   		index += PROTOLEN;
+		   		ip_index += PROTOLEN;
 
-		    	printf("IPLEN: %d\n", index);
 		    	//Read in value of IP length
 		    	fread(buffer, 1, IPLEN, trace_file);
 		    	memcpy(iplen, buffer, IPLEN);
 		    	memcpy(&ip_length, iplen,IPLEN);
 		   		ip_length = ntohs(ip_length);
+		   		bzero(buffer, BUFLEN);
 		   		index += IPLEN;
+		   		ip_index += IPLEN;
 
-		   		printf("IP Middle: %d\n", index);
 		   		//ignore middle bytes of header
 		   		fread(buffer, 1, IP_MIDLEN, trace_file);
 		   		bzero(buffer, BUFLEN);
 		   		index += IP_MIDLEN;
+		   		ip_index += IP_MIDLEN;
 
-		   		printf("transport protocol: %d\n", index);
 		   		//Read protocol field from ip header
 		   		fread(buffer, 1, PROTOLEN, trace_file);
 		   		memcpy(proto, buffer, PROTOLEN);
-		   		index += PROTOLEN;
+		   		if(compareHex(TCP, proto, PROTOLEN)){
+		   			protocol = 'T';
+		   		}
+		   		else{
+		   			if(compareHex(UDP, proto, PROTOLEN)){
+		   				protocol = 'U';
+		   			}
+		   			else{
+		   				protocol = '?';
+		   			}
 
-		   		i = 0;
-		    	for(; i< PROTOLEN; i++){
-		    		printf("%02x", proto[i]);
-		    		//if(type[i] != IP[i])
-		    			//ip = false;
-		    	}
-		    	printf("\n");
+		   		}
+		   		bzero(buffer, BUFLEN);
+		   		index += PROTOLEN;
+		   		ip_index += PROTOLEN;
+
+		   		//ignore rest of IP Bytes
+		   		fread(buffer, 1, iph_length-ip_index, trace_file);
+		   		bzero(buffer, BUFLEN);
+		   		index += iph_length-ip_index;
+
+		   		//read out the 'offset' value for trans_hl_length
+		   		if(protocol != 'T' && protocol != 'U'){
+		   			trans_hl_length = -1;
+		   		}
+		   		else{
+		   			if(protocol == 'T'){
+			   			fread(buffer, 1, TCP_BEGIN, trace_file);
+				   		bzero(buffer, BUFLEN);
+				   		index += TCP_BEGIN;
+
+			   			fread(buffer, 1, 1, trace_file);
+			    		memcpy(trans_hl, buffer, 1);
+			    		sprintf(str_trans_hl, "%02x", trans_hl[0]);
+			    		trans_hl_length = (atoi(str_trans_hl)/10)*4;
+			    		bzero(buffer, BUFLEN);
+			    		index += 1;
+			    	}
+			    	else{
+			    		fread(buffer, 1, UDP_BEGIN, trace_file);
+				   		bzero(buffer, BUFLEN);
+				   		index +=UDP_BEGIN;
+
+			   			fread(buffer, 1, UDPLEN, trace_file);
+			    		memcpy(trans_hl, buffer, UDPLEN);
+				    	memcpy(&trans_hl_length, trans_hl, UDPLEN);
+				   		trans_hl_length = ntohs(trans_hl_length);
+				   		bzero(buffer, BUFLEN);
+				   		index += UDPLEN;
+			    	}
+		   		}
 		    }
 	    }
 
@@ -160,7 +231,7 @@ char* processPacket(FILE* trace_file){
 	    		index += BUFLEN;
 	    	}
 	    }
-	    sprintf(processed_packet, "%d.%d,%d,%d,%d,%d,", time, millis, ip, packet_length, ip_length, iph_length);
+	    sprintf(processed_packet, "%lf,%d,%d,%d,%d,%c,%d,", real_time, ip, packet_length, ip_length, iph_length, protocol, trans_hl_length);
     }
     else{
     	return NULL;
@@ -183,10 +254,11 @@ int length(char* filename){
 	char caplen[MINI_BUFLEN];
 	char iplen[MINI_BUFLEN];
 	char iphlen[MINI_BUFLEN];
+	char trans_hl[MINI_BUFLEN];
+	char protocol;
 	bool ip = false;; 
 
     while((next = processPacket(file)) != NULL){
-    	fflush(stdout);
     	int index = 0;
     	int i = 0;
 		while(next[index] != ','){
@@ -213,7 +285,7 @@ int length(char* filename){
 		if(next[index] == '-'){
 			iplen[i] = '-';
 			i++;
-			index+=2;
+			index += 2;
 		}
 		else{
 			while(next[index] != ','){
@@ -229,7 +301,7 @@ int length(char* filename){
 		if(next[index] == '-'){
 			iphlen[i] = '-';
 			i++;
-			index++;
+			index += 2;
 		}
 		else{
 			while(next[index] != ','){
@@ -241,8 +313,41 @@ int length(char* filename){
 		}
 		iphlen[i] = '\0';
 
+		index++;
+		if(next[index] == '-'){
+			protocol = '-';
+			index++;
+		}
+		else{
+			protocol = next[index];
+			index++;
+		}
+
+		index++;
+		i = 0;
+		if(next[index] == '-'){
+			trans_hl[i] = '?';
+			i++;
+			index += 2;
+		}
+		else{
+			if(next[index] == '0'){
+				trans_hl[i] = '-';
+				i++;
+				index++;
+			}
+			else{
+				while(next[index] != ','){
+					trans_hl[i] = next[index];
+					i++;
+					index++;
+				}
+			}
+		}
+		trans_hl[i] = '\0';
+
 		if(ip)
-			printf("%s %s %s %s\n", time, caplen, iplen, iphlen);
+			printf("%s %s %s %s %c %s\n", time, caplen, iplen, iphlen, protocol, trans_hl);
     }
     //if(fclose(file)<0)
        // errexit("Error closing file", NULL);
