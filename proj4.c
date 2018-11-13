@@ -15,8 +15,11 @@
 #define TYPELEN 2
 #define ETH_BEGIN 12
 #define MINI_BUFLEN 32
-#define IPHLEN 2
+#define IPHLEN 1
 #define IPLEN 4
+#define PROTOLEN 2
+#define IP_MIDLEN 10
+
 
 //If there's any sort of error the program exits immediately.
 int errexit (char *format, char *arg){
@@ -35,8 +38,11 @@ char* processPacket(FILE* trace_file){
 	char iplen[IPLEN];
 	char iphlen[IPHLEN];
 	unsigned char type[TYPELEN];
+	unsigned char proto[PROTOLEN];
 	bool ip = true;
 	const int IP[] = {0x08, 0x00};
+	//const int TCP[] = {0x41, 0xc0, 0x29, 0xa1};
+	//cosnt int UDP[];
 	int packet_length;
 	int ip_length = -1;
 	int iph_length = -1;
@@ -70,14 +76,16 @@ char* processPacket(FILE* trace_file){
 	   	memcpy(&millis, time_stamp,TIMELEN);
 	   	millis = ntohl(millis);
 	    
-	    int index=0;
+	    int index = 0;
 	    
 	    if(packet_length>14){
+	    	printf("ETH_BEGIN: %d\n", index);
 		    //ignore beginning of ethernet header
 		    fread(buffer, 1, ETH_BEGIN, trace_file);
-		    index = ETH_BEGIN;
+		    index += ETH_BEGIN;
 		    bzero(buffer, BUFLEN);
 
+		    printf("ETH Type: %d\n", index);
 		    //Read type field from Ethernet header
 		    fread(buffer, 1, TYPELEN, trace_file);
 		    memcpy(type, buffer, TYPELEN);
@@ -90,25 +98,54 @@ char* processPacket(FILE* trace_file){
 		    }
 
 		    if(ip){
-		    	//Ingore first 2 bytes of header
+		    	printf("start IP: %d\n", index);
+		    	//Ignore first 2 bytes of header
 		    	fread(buffer, 1, IPHLEN, trace_file);
 		    	bzero(buffer, BUFLEN);
+		    	index += IPHLEN;
 
+		    	printf("IPHL: %d\n", index);
 		    	//read in ip header length
 		    	fread(buffer, 1, IPHLEN, trace_file);
 		    	memcpy(iphlen, buffer, IPHLEN);
 		    	memcpy(&iph_length, iphlen,IPHLEN);
 		   		iph_length = ntohs(iph_length);
 		    	bzero(buffer, BUFLEN);
+		    	index += IPHLEN;
 
+				printf("IP DS/ECN: %d\n", index);
+		   		//ignore middle bytes of header
+		   		fread(buffer, 1, PROTOLEN, trace_file);
+		   		bzero(buffer, BUFLEN);
+		   		index += PROTOLEN;
+
+		    	printf("IPLEN: %d\n", index);
 		    	//Read in value of IP length
 		    	fread(buffer, 1, IPLEN, trace_file);
 		    	memcpy(iplen, buffer, IPLEN);
 		    	memcpy(&ip_length, iplen,IPLEN);
 		   		ip_length = ntohs(ip_length);
+		   		index += IPLEN;
 
-		   		//increment index
-		    	index += IPHLEN*2+IPLEN;
+		   		printf("IP Middle: %d\n", index);
+		   		//ignore middle bytes of header
+		   		fread(buffer, 1, IP_MIDLEN, trace_file);
+		   		bzero(buffer, BUFLEN);
+		   		index += IP_MIDLEN;
+
+		   		printf("transport protocol: %d\n", index);
+		   		//Read protocol field from ip header
+		   		fread(buffer, 1, PROTOLEN, trace_file);
+		   		memcpy(proto, buffer, PROTOLEN);
+		   		index += PROTOLEN;
+
+		   		i = 0;
+		    	for(; i< PROTOLEN; i++){
+		    		printf("%02x", proto[i]);
+		    		//if(type[i] != IP[i])
+		    			//ip = false;
+		    	}
+		    	printf("\n");
 		    }
 	    }
 
@@ -123,7 +160,7 @@ char* processPacket(FILE* trace_file){
 	    		index += BUFLEN;
 	    	}
 	    }
-	    sprintf(processed_packet, "%d.%d,%d,%d,%d,", time, millis, ip, packet_length, ip_length);
+	    sprintf(processed_packet, "%d.%d,%d,%d,%d,%d,", time, millis, ip, packet_length, ip_length, iph_length);
     }
     else{
     	return NULL;
@@ -149,7 +186,6 @@ int length(char* filename){
 	bool ip = false;; 
 
     while((next = processPacket(file)) != NULL){
-    	printf("PP: %s\n", next);
     	fflush(stdout);
     	int index = 0;
     	int i = 0;
@@ -177,7 +213,7 @@ int length(char* filename){
 		if(next[index] == '-'){
 			iplen[i] = '-';
 			i++;
-			index++;
+			index+=2;
 		}
 		else{
 			while(next[index] != ','){
@@ -197,6 +233,7 @@ int length(char* filename){
 		}
 		else{
 			while(next[index] != ','){
+				//printf("ind: %d, i: %d\n", index, i);
 				iphlen[i] = next[index];
 				i++;
 				index++;
