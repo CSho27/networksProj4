@@ -25,12 +25,16 @@
 #define IPLEN 2
 #define PROTOLEN 1
 #define IP_MIDLEN 5
+#define IP_CHECKSUM_LEN 2
+#define IP_ADDR_LEN 4
 
 #define TCP_BEGIN 12
+#define TCP_PORT 2
 #define UDPLEN 8
 
-#define SKIP_TO_PROTOCOL 5
-#define SKIP_TO_TCP 7
+#define SKIP_TO_TCP 8
+
+
 
 
 //If there's any sort of error the program exits immediately.
@@ -72,6 +76,8 @@ char* processPacket(FILE* trace_file){
 	unsigned char type[TYPELEN];
 	unsigned char proto[PROTOLEN];
 	unsigned char trans_hl[1]; 
+	unsigned char src_ip[IP_ADDR_LEN];
+	unsigned char dest_ip[IP_ADDR_LEN];
 
 	bool ip = true;
 
@@ -82,6 +88,8 @@ char* processPacket(FILE* trace_file){
 	int ip_length = -1;
 	int iph_length = -1;
 	int trans_hl_length = 0;
+	unsigned int source_ip;
+	unsigned int destination_ip;
 	int time;
 	int millis;
 	int payload_len = 0;
@@ -187,10 +195,42 @@ char* processPacket(FILE* trace_file){
 		   		index += PROTOLEN;
 		   		ip_index += PROTOLEN;
 
-		   		//ignore rest of IP Bytes
-		   		fread(buffer, 1, iph_length-ip_index, trace_file);
+		   		//ignore checksum value of IP header
+		   		fread(buffer, 1, IP_CHECKSUM_LEN, trace_file);
 		   		bzero(buffer, BUFLEN);
-		   		index += iph_length-ip_index;
+		   		index += IP_CHECKSUM_LEN;
+		   		ip_index += IP_CHECKSUM_LEN;
+
+		   		//read out source IP Address
+		   		printf("IP_INDEX: %d\n", ip_index);
+		   		fread(buffer, 1, IP_ADDR_LEN, trace_file);
+			    memcpy(src_ip, buffer, IP_ADDR_LEN);
+			    printHex(src_ip, IP_ADDR_LEN);
+			   	memcpy(&source_ip, src_ip,IP_ADDR_LEN);
+			   	source_ip = ntohl(source_ip);
+			   	bzero(buffer, BUFLEN);
+		   		index += IP_ADDR_LEN;
+		   		ip_index += IP_ADDR_LEN;
+
+		   		//read out destination IP address
+		   		printf("IP_INDEX: %d\n", ip_index);
+		   		fread(buffer, 1, IP_ADDR_LEN, trace_file);
+			    memcpy(dest_ip, buffer, IP_ADDR_LEN);
+			    printHex(dest_ip, IP_ADDR_LEN);
+			   	memcpy(&destination_ip, dest_ip,IP_ADDR_LEN);
+			   	destination_ip = ntohl(destination_ip);
+			   	bzero(buffer, BUFLEN);
+		   		index += IP_ADDR_LEN;
+		   		ip_index += IP_ADDR_LEN;
+
+		   		printf("src: %d, dest: %d\n", source_ip, destination_ip);
+
+				//ignore rest of IP Bytes
+		   		fread(buffer, 1, iph_length - ip_index, trace_file);
+		   		bzero(buffer, BUFLEN);
+		   		index += iph_length - ip_index;
+		   		ip_index += iph_length - ip_index;
+
 
 		   		//read out the 'offset' value for trans_hl_length
 		   		if(protocol != 'T' && protocol != 'U'){
@@ -269,15 +309,21 @@ int tcpPrint(char* filename){
 			index++;
 		}
 
-		index++;
+		index=0;
 		if(tcp){
-			printf("Time: %s\n", time);
 			i = 0;
-			for(; i<(SKIP_TO_PROTOCOL - SKIP_TO_TCP); i++){
+			for(; i<(SKIP_TO_TCP); i++){
 				while(next[index] != ','){
 					index++;
 				}
+				index++;
 			}
+
+			printf("%s \n", time);
+
+
+
+
 		}
 	}
 	return 0;
