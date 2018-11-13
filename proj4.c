@@ -15,6 +15,8 @@
 #define TYPELEN 2
 #define ETH_BEGIN 12
 #define MINI_BUFLEN 32
+#define IPHLEN 2
+#define IPLEN 4
 
 //If there's any sort of error the program exits immediately.
 int errexit (char *format, char *arg){
@@ -30,12 +32,18 @@ char* processPacket(FILE* trace_file){
 	char buffer[BUFLEN];
 	char time_stamp[TIMELEN];
 	char caplen[CAPLEN];
+	char iplen[IPLEN];
+	char iphlen[IPHLEN];
 	unsigned char type[TYPELEN];
 	bool ip = true;
 	const int IP[] = {0x08, 0x00};
 	int packet_length;
+	int ip_length = -1;
+	int iph_length = -1;
 	int time;
 	int millis;
+
+
 	bzero(buffer, BUFLEN);
 
 	if(fread(buffer, 1, CAPLEN, trace_file)>0){
@@ -62,23 +70,47 @@ char* processPacket(FILE* trace_file){
 	   	memcpy(&millis, time_stamp,TIMELEN);
 	   	millis = ntohl(millis);
 	    
-	    //ignore beginning of ethernet header
 	    int index=0;
-	    fread(buffer, 1, ETH_BEGIN, trace_file);
-	    index = ETH_BEGIN;
-	    bzero(buffer, BUFLEN);
-
-	    fread(buffer, 1, TYPELEN, trace_file);
-	    memcpy(type, buffer, TYPELEN);
-	    index += TYPELEN;
-
 	    
-	    int i = 0;
-	    for(; i< TYPELEN; i++){
-	    	if(type[i] != IP[i])
-	    		ip = false;
+	    if(packet_length>14){
+		    //ignore beginning of ethernet header
+		    fread(buffer, 1, ETH_BEGIN, trace_file);
+		    index = ETH_BEGIN;
+		    bzero(buffer, BUFLEN);
+
+		    //Read type field from Ethernet header
+		    fread(buffer, 1, TYPELEN, trace_file);
+		    memcpy(type, buffer, TYPELEN);
+		    index += TYPELEN;
+		    
+		    int i = 0;
+		    for(; i< TYPELEN; i++){
+		    	if(type[i] != IP[i])
+		    		ip = false;
+		    }
+
+		    if(ip){
+		    	//Ingore first 2 bytes of header
+		    	fread(buffer, 1, IPHLEN, trace_file);
+		    	bzero(buffer, BUFLEN);
+
+		    	//read in ip header length
+		    	fread(buffer, 1, IPHLEN, trace_file);
+		    	memcpy(iphlen, buffer, IPHLEN);
+		    	memcpy(&iph_length, iphlen,IPHLEN);
+		   		iph_length = ntohs(iph_length);
+		    	bzero(buffer, BUFLEN);
+
+		    	//Read in value of IP length
+		    	fread(buffer, 1, IPLEN, trace_file);
+		    	memcpy(iplen, buffer, IPLEN);
+		    	memcpy(&ip_length, iplen,IPLEN);
+		   		ip_length = ntohs(ip_length);
+
+		   		//increment index
+		    	index += IPHLEN*2+IPLEN;
+		    }
 	    }
-	    
 
 	    while(index<packet_length){
 	    	bzero(buffer, BUFLEN);
@@ -91,7 +123,7 @@ char* processPacket(FILE* trace_file){
 	    		index += BUFLEN;
 	    	}
 	    }
-	    sprintf(processed_packet, "%d.%d,%d,%d,", time, millis, ip, packet_length);
+	    sprintf(processed_packet, "%d.%d,%d,%d,%d,", time, millis, ip, packet_length, ip_length);
     }
     else{
     	return NULL;
@@ -112,12 +144,15 @@ int length(char* filename){
 	char* next = malloc(MINI_BUFLEN*2);
 	char time[MINI_BUFLEN];
 	char caplen[MINI_BUFLEN];
+	char iplen[MINI_BUFLEN];
+	char iphlen[MINI_BUFLEN];
 	bool ip = false;; 
 
     while((next = processPacket(file)) != NULL){
-
+    	printf("PP: %s\n", next);
+    	fflush(stdout);
     	int index = 0;
-    	int i;
+    	int i = 0;
 		while(next[index] != ','){
 			time[i] = next[index];
 			i++;
@@ -137,8 +172,40 @@ int length(char* filename){
 		}
 		caplen[i] = '\0';
 
+		index++;
+		i = 0;
+		if(next[index] == '-'){
+			iplen[i] = '-';
+			i++;
+			index++;
+		}
+		else{
+			while(next[index] != ','){
+				iplen[i] = next[index];
+				i++;
+				index++;
+			}
+		}
+		iplen[i] = '\0';
+
+		index++;
+		i = 0;
+		if(next[index] == '-'){
+			iphlen[i] = '-';
+			i++;
+			index++;
+		}
+		else{
+			while(next[index] != ','){
+				iphlen[i] = next[index];
+				i++;
+				index++;
+			}
+		}
+		iphlen[i] = '\0';
+
 		if(ip)
-			printf("%s %s\n", time, caplen);
+			printf("%s %s %s %s\n", time, caplen, iplen, iphlen);
     }
     //if(fclose(file)<0)
        // errexit("Error closing file", NULL);
