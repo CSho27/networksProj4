@@ -29,6 +29,9 @@
 #define TCP_BEGIN 12
 #define UDPLEN 8
 
+#define SKIP_TO_PROTOCOL 5
+#define SKIP_TO_TCP 7
+
 
 //If there's any sort of error the program exits immediately.
 int errexit (char *format, char *arg){
@@ -118,6 +121,7 @@ char* processPacket(FILE* trace_file){
 	    
 	    int index = 0;
 	    
+	    //if the packet is long enough to have ethernet header use it
 	    if(packet_length > MIN_ETHERNET){
 		    //ignore beginning of ethernet header
 		    fread(buffer, 1, ETH_BEGIN, trace_file);
@@ -132,6 +136,7 @@ char* processPacket(FILE* trace_file){
 		    
 		    ip = compareHex(IP, type, TYPELEN);
 
+		    //If the packet is long enough to have IP header use it
 		    if(ip && packet_length >= MIN_IP){
 		    	int ip_index = 0;
 
@@ -213,6 +218,7 @@ char* processPacket(FILE* trace_file){
 		    }
 	    }
 
+	    //read remaining packet data
 	    while(index<packet_length){
 	    	bzero(buffer, BUFLEN);
 	    	if(BUFLEN>(packet_length-index)){
@@ -232,6 +238,50 @@ char* processPacket(FILE* trace_file){
 
     return processed_packet;
     
+}
+
+int tcpPrint(char* filename){
+	FILE* file = fopen(filename, "r");
+    if(file == NULL){
+    	printf("File not there");
+    	fflush(stdout);
+        return -1;
+    }
+    char* next = malloc(MINI_BUFLEN*2);
+    char time[MINI_BUFLEN];
+
+    bool tcp = false;
+
+    while((next = processPacket(file)) != NULL){
+    	int index = 0;
+    	int i = 0;
+		while(next[index] != ','){
+			time[i] = next[index];
+			i++;
+			index++;
+		}
+		time[i] = '\0';
+
+		
+		while(next[index] != 0){
+			if(next[index] == 'T')
+				tcp = true;
+			index++;
+		}
+
+		index++;
+		if(tcp){
+			printf("Time: %s\n", time);
+			i = 0;
+			for(; i<(SKIP_TO_PROTOCOL - SKIP_TO_TCP); i++){
+				while(next[index] != ','){
+					index++;
+				}
+			}
+		}
+	}
+	return 0;
+
 }
 
 int length(char* filename){
@@ -483,6 +533,10 @@ int main(int argc, char *argv[]){
 		}
 		if(length_analysis){
 			if(length(trace_file)<0)
+				errexit("ERROR: Summary mode failed. Could not find file speicified.", NULL);
+		}
+		if(packet_printing){
+			if(tcpPrint(trace_file)<0)
 				errexit("ERROR: Summary mode failed. Could not find file speicified.", NULL);
 		}
 	}	
