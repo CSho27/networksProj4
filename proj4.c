@@ -7,6 +7,7 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <arpa/inet.h>
+#include <math.h>
 
 #define ERROR 1
 #define BUFLEN 2048
@@ -45,6 +46,12 @@
 
 #define ASCII_NUM 48
 #define HEX_VAL 16
+#define A_VAL 10
+#define B_VAL 11
+#define C_VAL 12
+#define D_VAL 13
+#define E_VAL 14
+#define F_VAL 15
 
 
 
@@ -66,71 +73,103 @@ int printHex(unsigned char hex[], int n){
 	return i;
 }
 
-int hexToInt(unsigned char* hex, int byte_flip){
-	char int_str[IP_ADDR_LEN];
-	int integer;
-	int x, y;
-	sprintf(int_str, "%02x", hex[0]);
+long hexToInt(unsigned char* hex, int n, bool byte_flip){
+	//printf("\n start \n");
+	char hex_str[MINI_BUFLEN];
+	long long integer = 0;
+	long x = 1;
+	int i, j;
+	bool done = false;
 
-	if(byte_flip == 1){
-		x = 1;
-		y = HEX_VAL;
-	}
-	else{
-		x = HEX_VAL;
-		y = 1;
-	}
-	if(int_str[0] >= '0' && int_str[0] <= '9'){
-		integer = x*(((int) int_str[0])-ASCII_NUM);
-	}
-	else{
-	switch(int_str[0]){
-		case 'a':
-			integer = x*10;
-			break;
-		case 'b':
-			integer = x*11;
-			break;
-		case 'c':
-			integer = x*12;
-			break;
-		case 'd':
-			integer = x*13;
-			break;
-		case 'e':
-			integer = x*14;
-			break;
-		case 'f':
-			integer = x*15;
-			break;
+	if(byte_flip)
+		i = 0;
+	else
+		i = n-1;
+
+	while(!done){
+		if(byte_flip)
+			j = 0;
+		else
+			j = 1;
+
+		bzero(hex_str, MINI_BUFLEN);
+		sprintf(hex_str, "%02x", hex[i]);
+		//first digit
+		//printf("%lld + %ld*%c\n", integer, x, hex_str[j]);
+
+		if(hex_str[j] >= '0' && hex_str[j] <= '9'){
+			integer += x*(((int) hex_str[j])-ASCII_NUM);
+		}
+		else{
+			switch(hex_str[j]){
+				case 'a':
+					integer += x*A_VAL;
+					break;
+				case 'b':
+					integer += x*B_VAL;
+					break;
+				case 'c':
+					integer += x*C_VAL;
+					break;
+				case 'd':
+					integer += x*D_VAL;
+					break;
+				case 'e':
+					integer += x*E_VAL;
+					break;
+				case 'f':
+					integer += x*F_VAL;
+					break;
+				default:
+					break;
+				}
+		}
+		x = x*16;
+		if(byte_flip)
+			j++;
+		else
+			j--;
+		//printf("%lld + %ld*%c\n", integer, x, hex_str[j]);
+		//second digit
+		if(hex_str[j] >= '0' && hex_str[j] <= '9'){
+			integer += x*(((int) hex_str[j])-ASCII_NUM);
+		}
+		else{
+			switch(hex_str[j]){
+				case 'a':
+					integer += x*A_VAL;
+					break;
+				case 'b':
+					integer += x*B_VAL;
+					break;
+				case 'c':
+					integer += x*C_VAL;
+					break;
+				case 'd':
+					integer += x*D_VAL;
+					break;
+				case 'e':
+					integer += x*E_VAL;
+					break;
+				case 'f':
+					integer += x*F_VAL;
+					break;
+				default:
+					break;
+				}
+		}
+		x = x*16;
+
+		if(byte_flip){
+			i++;
+			done = (i >= n);
+		}
+		else{
+			i--;
+			done = (i < 0);
 		}
 	}
-
-	if(int_str[1] >= '0' && int_str[1] <= '9'){
-		integer += y*(((int) int_str[1])-ASCII_NUM);
-	}
-	else{
-	switch(int_str[1]){
-		case 'a':
-			integer += y*10;
-			break;
-		case 'b':
-			integer += y*11;
-			break;
-		case 'c':
-			integer += y*12;
-			break;
-		case 'd':
-			integer += y*13;
-			break;
-		case 'e':
-			integer += y*14;
-			break;
-		case 'f':
-			integer += y*15;
-			break;
-		}
-	}
+	//printf("integer: %lld\n", integer);
 	return integer;
 }
 
@@ -163,6 +202,7 @@ char* processPacket(FILE* trace_file){
 	unsigned char ttl[TTL_LEN];
 	unsigned char seq[SEQLEN];
 	unsigned char ack[ACKLEN];
+	unsigned char window[WINDOWLEN];
 
 	bool ip = true;
 
@@ -179,6 +219,7 @@ char* processPacket(FILE* trace_file){
 	int time_to_live;
 	int sequence;
 	int ack_num;
+	int window_size;
 
 	int time;
 	int millis;
@@ -271,7 +312,7 @@ char* processPacket(FILE* trace_file){
 		   		//Read TTL
    				fread(buffer, 1, TTL_LEN, trace_file);
 		    	memcpy(ttl, buffer, TTL_LEN);
-		   		time_to_live = hexToInt(ttl, 1);
+		   		time_to_live = hexToInt(ttl, 1, true);
 		   		bzero(buffer, BUFLEN);
 		   		index += TTL_LEN;
 		   		ip_index += TTL_LEN;
@@ -306,7 +347,7 @@ char* processPacket(FILE* trace_file){
 		   		for(; i<IP_ADDR_LEN; i++){
 			   		fread(buffer, 1, 1, trace_file);
 				    memcpy(src_ip, buffer, 1);
-			   		addr_byte[i] = hexToInt(src_ip, 0);
+			   		addr_byte[i] = hexToInt(src_ip, 1, false);
 				   	bzero(buffer, BUFLEN);
 			   		index ++;
 			   		ip_index ++;
@@ -318,7 +359,7 @@ char* processPacket(FILE* trace_file){
 		   		for(; i<IP_ADDR_LEN; i++){
 			   		fread(buffer, 1, 1, trace_file);
 				    memcpy(dest_ip, buffer, 1);
-			   		addr_byte[i] = hexToInt(dest_ip, 0);
+			   		addr_byte[i] = hexToInt(dest_ip, 1, false);
 				   	bzero(buffer, BUFLEN);
 			   		index ++;
 			   		ip_index ++;
@@ -358,14 +399,14 @@ char* processPacket(FILE* trace_file){
 				   		//Read sequence number
 				   		fread(buffer, 1, SEQLEN, trace_file);
 				    	memcpy(seq, buffer, SEQLEN);
-				    	memcpy(&sequence, seq, SEQLEN);
+				    	sequence = hexToInt(seq, SEQLEN, false);
 				   		bzero(buffer, BUFLEN);
 				   		index += SEQLEN;
 
 				   		//Read ack number
 				   		fread(buffer, 1, ACKLEN, trace_file);
 				    	memcpy(ack, buffer, ACKLEN);
-				    	memcpy(&ack_num, ack, ACKLEN);
+				    	ack_num = hexToInt(ack, ACKLEN, false);
 				   		bzero(buffer, BUFLEN);
 				   		index += ACKLEN;
 
@@ -376,6 +417,21 @@ char* processPacket(FILE* trace_file){
 			    		trans_hl_length = (atoi(str_trans_hl)/10)*4;
 			    		bzero(buffer, BUFLEN);
 			    		index += 1;
+
+			    		//ignore checksum value of IP header
+				   		fread(buffer, 1, 1, trace_file);
+				   		bzero(buffer, BUFLEN);
+				   		index ++;
+
+				   		//Read destination port
+				   		fread(buffer, 1, WINDOWLEN, trace_file);
+				    	memcpy(window, buffer, WINDOWLEN);
+				    	memcpy(&window_size, window,WINDOWLEN);
+				   		window_size = ntohs(window_size);
+				   		bzero(buffer, BUFLEN);
+				   		index += WINDOWLEN;
+
+
 			    	}
 			    	else{
 			    		trans_hl_length = UDPLEN;
@@ -397,8 +453,8 @@ char* processPacket(FILE* trace_file){
 	    		index += BUFLEN;
 	    	}
 	    }
-	    sprintf(processed_packet, "%lf,%d,%d,%d,%d,%c,%d,%d,%s,%s,%d,%d,%d,%d,%d,", real_time, ip, packet_length, ip_length, iph_length, protocol, trans_hl_length, payload_len,
-	    	source_ip, destination_ip, source_port, destination_port, time_to_live, sequence, ack_num);
+	    sprintf(processed_packet, "%lf,%d,%d,%d,%d,%c,%d,%d,%s,%s,%d,%d,%d,%d,%d,%d,", real_time, ip, packet_length, ip_length, iph_length, protocol, trans_hl_length, payload_len,
+	    	source_ip, destination_ip, source_port, destination_port, time_to_live, window_size, sequence, ack_num);
     }
     else{
     	return NULL;
@@ -422,6 +478,7 @@ int tcpPrint(char* filename){
     char source_port[MINI_BUFLEN];
     char dest_port[MINI_BUFLEN];
     char ttl[MINI_BUFLEN];
+    char window[MINI_BUFLEN];
     char seq[MINI_BUFLEN];
     char ack[MINI_BUFLEN];
 
@@ -503,6 +560,15 @@ int tcpPrint(char* filename){
 			index++;
     		i = 0;
 			while(next[index] != ','){
+			window[i] = next[index];
+			i++;
+			index++;
+			}
+			window[i] = '\0';
+
+			index++;
+    		i = 0;
+			while(next[index] != ','){
 			seq[i] = next[index];
 			i++;
 			index++;
@@ -518,7 +584,7 @@ int tcpPrint(char* filename){
 			}
 			ack[i] = '\0';
 
-			printf("%s %s %s %s %s %s %s %s\n", time, source_ip, source_port, dest_ip, dest_port, ttl, seq, ack);
+			printf("%s %s %s %s %s %s %s %s %s\n", time, source_ip, source_port, dest_ip, dest_port, ttl, window, seq, ack);
 
 
 
