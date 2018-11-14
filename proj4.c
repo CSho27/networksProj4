@@ -127,7 +127,7 @@ long hexToInt(unsigned char* hex, int n, bool byte_flip){
 					break;
 				}
 		}
-		x = x*16;
+		x = x*HEX_VAL;
 		if(byte_flip)
 			j++;
 		else
@@ -185,9 +185,8 @@ bool compareHex(unsigned char hex1[], unsigned char hex2[], int n){
     return same;
 }
 
-char* processPacket(FILE* trace_file){
-	char* processed_packet = malloc(BUFLEN);
-	bzero(processed_packet, BUFLEN);
+int processPacket(FILE* trace_file, char* processed_packet, int buflen){
+	bzero(processed_packet, buflen);
 
 	unsigned char buffer[BUFLEN];
 	unsigned char time_stamp[TIMELEN];
@@ -206,7 +205,7 @@ char* processPacket(FILE* trace_file){
 	unsigned char ack[ACKLEN];
 	unsigned char window[WINDOWLEN];
 
-	bool ip = true;
+	bool ip = false;
 
 	unsigned char IP[] = {0x08, 0x00};
 	unsigned char TCP[] = {0x06};
@@ -440,8 +439,11 @@ char* processPacket(FILE* trace_file){
 			    			trans_hl_length = UDPLEN;
 			    			payload_len = ip_length - iph_length - trans_hl_length;
 			    		}
+			    		else{
+			    			if(protocol == '?')
+			    				payload_len = -1;
+			    		}
 			    	}
-			    	
 		   		}
 		    }
 	    }
@@ -462,11 +464,9 @@ char* processPacket(FILE* trace_file){
 	    	source_ip, destination_ip, source_port, destination_port, time_to_live, window_size, sequence, ack_num);
     }
     else{
-    	return NULL;
+    	return 0;
     }
-
-    return processed_packet;
-    
+    return packet_length;
 }
 
 int trafficMatrix(char* filename){
@@ -485,7 +485,7 @@ int trafficMatrix(char* filename){
     char trans_hl[MINI_BUFLEN];
 
     int total_pairs;
-    while((next = processPacket(file)) != NULL){
+    while(processPacket(file, next, MINI_BUFLEN) > 0){
     	bzero(trans_hl, MINI_BUFLEN);
     	bool tcp = false;
     	int index = 0;
@@ -558,14 +558,14 @@ int trafficMatrix(char* filename){
 				int pairs_index = 0;
 				for(; pairs_index<total_pairs; pairs_index++){
 					if(strcmp(current_pair, pairs[pairs_index]) == 0){
-						printf("%s = %d + %d (%d)\n", pairs[pairs_index], payloads[pairs_index], atoi(payload_len), atoi(trans_hl));
+						//printf("%s = %d + %d (%d)\n", pairs[pairs_index], payloads[pairs_index], atoi(payload_len), atoi(trans_hl));
 						payloads[pairs_index] += atoi(payload_len);
 						match = true;
 					}
 				}
 				if(!match){
 					sprintf(pairs[pairs_index], "%s %s", source_ip, dest_ip);
-					printf("%s = %d (%d)\n", pairs[pairs_index], atoi(payload_len), atoi(trans_hl));
+					//printf("%s = %d (%d)\n", pairs[pairs_index], atoi(payload_len), atoi(trans_hl));
 					payloads[pairs_index] = atoi(payload_len);
 					total_pairs++;
 				}
@@ -576,9 +576,8 @@ int trafficMatrix(char* filename){
 	for(; j<total_pairs; j++){
 		printf("%s %d\n", pairs[j], payloads[j]);
 	}
-
+	free(next);
 	return 0;
-
 }
 
 int tcpPrint(char* filename){
@@ -599,7 +598,7 @@ int tcpPrint(char* filename){
 
     bool tcp;
 
-    while((next = processPacket(file)) != NULL){
+    while(processPacket(file, next, MINI_BUFLEN) > 0){
     	tcp = false;
     	int index = 0;
     	int i = 0;
@@ -700,12 +699,9 @@ int tcpPrint(char* filename){
 			ack[i] = '\0';
 
 			printf("%s %s %s %s %s %s %s %s %s\n", time, source_ip, source_port, dest_ip, dest_port, ttl, window, seq, ack);
-
-
-
-
 		}
 	}
+	free(next);
 	return 0;
 
 }
@@ -716,7 +712,7 @@ int length(char* filename){
         return -1;
     }
 
-	char* next = malloc(MINI_BUFLEN*2);
+	char* next = malloc(BUFLEN);
 	char time[MINI_BUFLEN];
 	char caplen[MINI_BUFLEN];
 	char iplen[MINI_BUFLEN];
@@ -725,7 +721,7 @@ int length(char* filename){
 	char payload_len[MINI_BUFLEN];
 	char protocol;
 
-    while((next = processPacket(file)) != NULL){
+    while(processPacket(file, next, BUFLEN) > 0){
     	int index = 0;
     	int i = 0;
 		while(next[index] != ','){
@@ -815,7 +811,7 @@ int length(char* filename){
 		index++;
 		i = 0;
 		if(next[index] == '-'){
-			if(next[index] == '1')
+			if(next[index+1] == '1')
 				payload_len[i] = '?';
 			else
 				payload_len[i] = '-';
@@ -833,8 +829,7 @@ int length(char* filename){
 
 		printf("%s %s %s %s %c %s %s\n", time, caplen, iplen, iphlen, protocol, trans_hl, payload_len);
     }
-    //if(fclose(file)<0)
-       // errexit("Error closing file", NULL);
+    free(next);
     return 0;
 }
 
@@ -844,12 +839,12 @@ int summary(char* filename){
         return -1;
     }
     
-    int packet_num = 0;
+    long packet_num = 0;
     char* first_time = malloc(MINI_BUFLEN);
   	char* last_time = malloc(MINI_BUFLEN);
-    char* next = malloc(MINI_BUFLEN);
-    int ip_packets = 0;
-    while((next = processPacket(file)) != NULL){
+    char* next = malloc(BUFLEN);
+    long ip_packets = 0;
+    while(processPacket(file, next, BUFLEN) > 0){
     	int i = 0;
     	if(packet_num==0){
     		while(next[i] != ','){
@@ -857,22 +852,25 @@ int summary(char* filename){
     			i++;
     		}
     		first_time[i] = '\0';
+    		memcpy(last_time, first_time, MINI_BUFLEN);
 
     	}
     	while(next[i] != ','){
-    			last_time[i] = next[i];
-    			i++;
-    		}
-    		last_time[i] = '\0';
-    		if(next[i+1] == '1')
-    			ip_packets++;
+			last_time[i] = next[i];
+			i++;
+		}	
+		last_time[i] = '\0';
+		if(next[i+1] == '1')
+			ip_packets++;
     	packet_num++;
     }
-    printf("TIME SPAN: %s - %s\nTOTAL PACKETS: %d\nIP PACKETS: %d\n", first_time, last_time, packet_num, ip_packets);
+    printf("TIME SPAN: %s - %s\nTOTAL PACKETS: %ld\nIP PACKETS: %ld\n", first_time, last_time, packet_num, ip_packets);
     fflush(stdout);
     //if(fclose(file)<0)
        // errexit("Error closing file", NULL);
-
+    free(first_time);
+    free(last_time);
+    free(next);
     return 0;
 }
 
