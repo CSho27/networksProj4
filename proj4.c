@@ -475,7 +475,7 @@ int trafficMatrix(char* filename){
         return -1;
     }
 
-    char* next = malloc(MINI_BUFLEN*2);
+    char* next = malloc(BUFLEN);
 
     char source_ip[MINI_BUFLEN];
     char dest_ip[MINI_BUFLEN];
@@ -485,8 +485,9 @@ int trafficMatrix(char* filename){
     char trans_hl[MINI_BUFLEN];
 
     int total_pairs;
-    while(processPacket(file, next, MINI_BUFLEN) > 0){
+    while(processPacket(file, next, BUFLEN) > 0){
     	bzero(trans_hl, MINI_BUFLEN);
+    	bzero(payload_len, MINI_BUFLEN);
     	bool tcp = false;
     	int index = 0;
     	int i = 0;
@@ -585,7 +586,7 @@ int tcpPrint(char* filename){
     if(file == NULL){
         return -1;
     }
-    char* next = malloc(MINI_BUFLEN*2);
+    char* next = malloc(BUFLEN);
     char time[MINI_BUFLEN];
     char source_ip[MINI_BUFLEN];
     char dest_ip[MINI_BUFLEN];
@@ -598,7 +599,7 @@ int tcpPrint(char* filename){
 
     bool tcp;
 
-    while(processPacket(file, next, MINI_BUFLEN) > 0){
+    while(processPacket(file, next,BUFLEN) > 0){
     	tcp = false;
     	int index = 0;
     	int i = 0;
