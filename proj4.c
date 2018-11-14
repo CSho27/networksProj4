@@ -12,6 +12,8 @@
 #define ERROR 1
 #define BUFLEN 2048
 #define MINI_BUFLEN 32
+#define MILLIS_CONV 1000000
+
 #define TIMELEN 4
 #define CAPLEN 2
 
@@ -38,6 +40,7 @@
 #define ADDR4 3
 
 #define TCP_BEGIN 8
+#define TRANS_HL_LEN 1
 #define SEQLEN 4
 #define ACKLEN 4
 #define WINDOWLEN 2
@@ -66,6 +69,7 @@ int errexit (char *format, char *arg){
     exit (ERROR);
 }
 
+//This was a utility for testing values, so that I could see the actual bytes I was reading in
 int printHex(unsigned char hex[], int n){
 	int i = 0;
 	for(; i< n; i++){
@@ -76,8 +80,8 @@ int printHex(unsigned char hex[], int n){
 	return i;
 }
 
+//This converts bytes to a decimal long. I guess it's technically binary to int, but I find it easier to think about bytes in hex
 long hexToInt(unsigned char* hex, int n, bool byte_flip){
-	//printf("\n start \n");
 	char hex_str[MINI_BUFLEN];
 	long integer = 0;
 	long x = 1;
@@ -97,8 +101,6 @@ long hexToInt(unsigned char* hex, int n, bool byte_flip){
 
 		bzero(hex_str, MINI_BUFLEN);
 		sprintf(hex_str, "%02x", hex[i]);
-		//first digit
-		//printf("%lld + %ld*%c\n", integer, x, hex_str[j]);
 
 		if(hex_str[j] >= '0' && hex_str[j] <= '9'){
 			integer += x*(((int) hex_str[j])-ASCII_NUM);
@@ -128,12 +130,12 @@ long hexToInt(unsigned char* hex, int n, bool byte_flip){
 				}
 		}
 		x = x*HEX_VAL;
+
 		if(byte_flip)
 			j++;
 		else
 			j--;
-		//printf("%lld + %ld*%c\n", integer, x, hex_str[j]);
-		//second digit
+
 		if(hex_str[j] >= '0' && hex_str[j] <= '9'){
 			integer += x*(((int) hex_str[j])-ASCII_NUM);
 		}
@@ -161,7 +163,7 @@ long hexToInt(unsigned char* hex, int n, bool byte_flip){
 					break;
 				}
 		}
-		x = x*16;
+		x = x*HEX_VAL;
 
 		if(byte_flip){
 			i++;
@@ -175,6 +177,7 @@ long hexToInt(unsigned char* hex, int n, bool byte_flip){
 	return integer;
 }
 
+//This compares two sets of bytes and returns true if they are equal. Again, it's definitely actually comparing binary but whatever. 
 bool compareHex(unsigned char hex1[], unsigned char hex2[], int n){
 	bool same = true;
 	int i = 0;
@@ -185,9 +188,12 @@ bool compareHex(unsigned char hex1[], unsigned char hex2[], int n){
     return same;
 }
 
+//This method takes a packet and reads out all of the values the program should know in a big, long comma deliniated string. This is a gross and convoluted way of doing this, but it works.
+//I've commented it thoroughly to try to clear things up. Esentially, it just goes through the whole packet piece by piece and picks out values, then writes those values to the final string.
 int processPacket(FILE* trace_file, char* processed_packet, int buflen){
 	bzero(processed_packet, buflen);
 
+	//A space for each group of bytes to be held in. I realize now that this was probably an extraneous step, but it does work
 	unsigned char buffer[BUFLEN];
 	unsigned char time_stamp[TIMELEN];
 	unsigned char caplen[CAPLEN];
@@ -195,7 +201,7 @@ int processPacket(FILE* trace_file, char* processed_packet, int buflen){
 	unsigned char iphlen[IPHLEN];
 	unsigned char type[TYPELEN];
 	unsigned char proto[PROTOLEN];
-	unsigned char trans_hl[1]; 
+	unsigned char trans_hl[TRANS_HL_LEN]; 
 	unsigned char src_ip[IP_ADDR_LEN];
 	unsigned char dest_ip[IP_ADDR_LEN];
 	unsigned char src_port[PORTLEN];
@@ -205,11 +211,14 @@ int processPacket(FILE* trace_file, char* processed_packet, int buflen){
 	unsigned char ack[ACKLEN];
 	unsigned char window[WINDOWLEN];
 
-	bool ip = false;
+	bool ip = false; // is it an IP packet
 
+	//These are constants for me to use check if the bytes speicifying each protocol match up with IP, TCP, UDP
 	unsigned char IP[] = {0x08, 0x00};
 	unsigned char TCP[] = {0x06};
 	unsigned char UDP[] = {0x11};
+
+	//All the integer values that the unsigned chars will eventually be used to set
 	int packet_length;
 	int ip_length = -1;
 	int iph_length = -1;
@@ -227,15 +236,18 @@ int processPacket(FILE* trace_file, char* processed_packet, int buflen){
 	int payload_len = -2;
 	double real_time = 0;
 
+	//These I build strings before printing them, because they have tricky format and this helps me get them right
 	char str_iphl[MINI_BUFLEN];
 	char str_trans_hl[MINI_BUFLEN];
 	char source_ip[MINI_BUFLEN];
 	char destination_ip[MINI_BUFLEN];
 
+	//TCP, UDP, or ?
 	char protocol = '-';
 
 	bzero(buffer, BUFLEN);
 
+	//
 	if(fread(buffer, 1, CAPLEN, trace_file)>0){
 		//find out how long packet is;
 		memcpy(caplen, buffer, CAPLEN);
@@ -259,7 +271,7 @@ int processPacket(FILE* trace_file, char* processed_packet, int buflen){
 	    memcpy(time_stamp, buffer, TIMELEN);
 	   	memcpy(&millis, time_stamp,TIMELEN);
 	   	millis = ntohl(millis);
-	   	real_time = time + ((double) millis)/1000000;
+	   	real_time = time + ((double) millis)/MILLIS_CONV;
 	    
 	    int index = 0;
 	    
@@ -374,7 +386,7 @@ int processPacket(FILE* trace_file, char* processed_packet, int buflen){
 		   		ip_index += iph_length - ip_index;
 
 
-		   		
+		   		//If it's a known protocol handle its values, otherwise return -1 for unknown things
 		   		if(protocol != 'T' && protocol != 'U'){
 		   			trans_hl_length = -1;
 		   			payload_len = -1;
@@ -460,6 +472,7 @@ int processPacket(FILE* trace_file, char* processed_packet, int buflen){
 	    		index += BUFLEN;
 	    	}
 	    }
+	    //Building the big nasty string I talked about at the beginning. I get that it is convoluted, but it works.
 	    sprintf(processed_packet, "%lf,%d,%d,%d,%d,%c,%d,%d,%s,%s,%d,%d,%d,%d,%lu,%lu,", real_time, ip, packet_length, ip_length, iph_length, protocol, trans_hl_length, payload_len,
 	    	source_ip, destination_ip, source_port, destination_port, time_to_live, window_size, sequence, ack_num);
     }
@@ -469,6 +482,8 @@ int processPacket(FILE* trace_file, char* processed_packet, int buflen){
     return packet_length;
 }
 
+//Traffic matrix prints how much data has been sent from each set of sources and destinations. It skips through my big string to find the values it specifically needs and keeps 2 arrays to tell
+//which source, dest pairs have been counted and how much traffic is being sent between them.
 int trafficMatrix(char* filename){
 	FILE* file = fopen(filename, "r");
     if(file == NULL){
@@ -581,6 +596,7 @@ int trafficMatrix(char* filename){
 	return 0;
 }
 
+//tcpPrint prints a bunch of TCP info about each packet. It picks through my big nasty string to find all the values it needs and then prints them.
 int tcpPrint(char* filename){
 	FILE* file = fopen(filename, "r");
     if(file == NULL){
@@ -704,9 +720,9 @@ int tcpPrint(char* filename){
 	}
 	free(next);
 	return 0;
-
 }
 
+//length picks through my big nasty string to find a bunch of length data and then prints it.
 int length(char* filename){
     FILE* file = fopen(filename, "r");
     if(file == NULL){
@@ -834,6 +850,7 @@ int length(char* filename){
     return 0;
 }
 
+//Summary prints out basic data about the time range, number of packets, and number of IP packets. It picks through the first few values of my big nasty string to find these values.
 int summary(char* filename){
     FILE* file = fopen(filename, "r");
     if(file == NULL){
@@ -874,8 +891,6 @@ int summary(char* filename){
     free(next);
     return 0;
 }
-
-
 
 //Here is the main method, it processes the command and runs the tool
 int main(int argc, char *argv[]){
@@ -924,7 +939,7 @@ int main(int argc, char *argv[]){
             
 		}
         else{
-            errexit("ERROR: Either no flags were entered or an invalid argument was passed", NULL);
+            errexit("ERROR: Either no flags were entered or an invalid argument was passed.\nMake sure the -t flag is always included.", NULL);
 		}
 	}
 	if(!trace_present){
