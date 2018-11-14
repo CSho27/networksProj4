@@ -45,7 +45,7 @@
 #define UDPLEN 8
 
 #define SKIP_TO_TCP 8
-#define SKIP_TO_IP_ADDR 7
+#define SKIP_TO_THL 6
 
 #define ASCII_NUM 48
 #define HEX_VAL 16
@@ -473,8 +473,6 @@ char* processPacket(FILE* trace_file){
 int trafficMatrix(char* filename){
 	FILE* file = fopen(filename, "r");
     if(file == NULL){
-    	printf("File not there");
-    	fflush(stdout);
         return -1;
     }
 
@@ -485,9 +483,11 @@ int trafficMatrix(char* filename){
     char payload_len[MINI_BUFLEN];
     char pairs[BUFLEN][MINI_BUFLEN];
     int payloads[BUFLEN];
+    char trans_hl[MINI_BUFLEN];
 
     int total_pairs;
     while((next = processPacket(file)) != NULL){
+    	bzero(trans_hl, MINI_BUFLEN);
     	bool tcp = false;
     	int index = 0;
     	int i = 0;
@@ -502,7 +502,7 @@ int trafficMatrix(char* filename){
 		index = 0;
 		if(tcp){
 			i = 0;
-			for(; i<(SKIP_TO_IP_ADDR); i++){
+			for(; i<(SKIP_TO_THL); i++){
 				while(next[index] != ','){
 					index++;
 				}
@@ -510,46 +510,66 @@ int trafficMatrix(char* filename){
 			}
 
 			i = 0;
-			while(next[index] != ','){
-					payload_len[i] = next[index];
+			if(next[index] == '-'){
+				trans_hl[i] = '0';
+				i++;
+				index += 2;
+			}
+			else{
+				while(next[index] != ','){
+					trans_hl[i] = next[index];
 					i++;
 					index++;
-			}
-			payload_len[i] = '\0';
-
-			index++;
-    		i = 0;
-			while(next[index] != ','){
-			source_ip[i] = next[index];
-			i++;
-			index++;
-			}
-			source_ip[i] = '\0';
-
-			index++;
-    		i = 0;
-			while(next[index] != ','){
-			dest_ip[i] = next[index];
-			i++;
-			index++;
-			}
-			dest_ip[i] = '\0';
-
-			char current_pair[MINI_BUFLEN];
-			sprintf(current_pair, "%s %s", source_ip, dest_ip);
-			bool match = false;
-
-			int pairs_index = 0;
-			for(; pairs_index<total_pairs; pairs_index++){
-				if(strcmp(current_pair, pairs[pairs_index]) == 0){
-					payloads[pairs_index] += atoi(payload_len);
-					match = true;
 				}
 			}
-			if(!match){
-				sprintf(pairs[pairs_index], "%s %s", source_ip, dest_ip);
-				payloads[pairs_index] = atoi(payload_len);
-				total_pairs++;
+			trans_hl[i] = '\0';
+
+			if(atoi(trans_hl)>=MIN_TCP){
+				index++;
+				i = 0;
+				while(next[index] != ','){
+						payload_len[i] = next[index];
+						i++;
+						index++;
+				}
+				payload_len[i] = '\0';
+
+				index++;
+	    		i = 0;
+				while(next[index] != ','){
+				source_ip[i] = next[index];
+				i++;
+				index++;
+				}
+				source_ip[i] = '\0';
+
+				index++;
+	    		i = 0;
+				while(next[index] != ','){
+				dest_ip[i] = next[index];
+				i++;
+				index++;
+				}
+				dest_ip[i] = '\0';
+
+				char current_pair[MINI_BUFLEN];
+				sprintf(current_pair, "%s %s", source_ip, dest_ip);
+				bool match = false;
+
+				int pairs_index = 0;
+				for(; pairs_index<total_pairs; pairs_index++){
+					if(strcmp(current_pair, pairs[pairs_index]) == 0){
+						printf("%s = %d + %d (%d)\n", pairs[pairs_index], payloads[pairs_index], atoi(payload_len), atoi(trans_hl));
+						payloads[pairs_index] += atoi(payload_len);
+						match = true;
+					}
+				}
+				if(!match){
+					sprintf(pairs[pairs_index], "%s %s", source_ip, dest_ip);
+					printf("%s = %d (%d)\n", pairs[pairs_index], atoi(payload_len), atoi(trans_hl));
+					payloads[pairs_index] = atoi(payload_len);
+					total_pairs++;
+				}
 			}
 		}
 	}
@@ -565,8 +585,6 @@ int trafficMatrix(char* filename){
 int tcpPrint(char* filename){
 	FILE* file = fopen(filename, "r");
     if(file == NULL){
-    	printf("File not there");
-    	fflush(stdout);
         return -1;
     }
     char* next = malloc(MINI_BUFLEN*2);
@@ -696,8 +714,6 @@ int tcpPrint(char* filename){
 int length(char* filename){
     FILE* file = fopen(filename, "r");
     if(file == NULL){
-    	printf("File not there");
-    	fflush(stdout);
         return -1;
     }
 
