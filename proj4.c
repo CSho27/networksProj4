@@ -21,6 +21,8 @@
 
 
 #define MIN_IP 34
+#define MIN_TCP 20
+
 #define IPV4_VALUE 40
 #define IPHLEN 1
 #define IPLEN 2
@@ -43,6 +45,7 @@
 #define UDPLEN 8
 
 #define SKIP_TO_TCP 8
+#define SKIP_TO_IP_ADDR 7
 
 #define ASCII_NUM 48
 #define HEX_VAL 16
@@ -184,8 +187,8 @@ bool compareHex(unsigned char hex1[], unsigned char hex2[], int n){
 }
 
 char* processPacket(FILE* trace_file){
-	char* processed_packet = malloc(MINI_BUFLEN);
-	bzero(processed_packet, MINI_BUFLEN);
+	char* processed_packet = malloc(BUFLEN);
+	bzero(processed_packet, BUFLEN);
 
 	unsigned char buffer[BUFLEN];
 	unsigned char time_stamp[TIMELEN];
@@ -214,16 +217,16 @@ char* processPacket(FILE* trace_file){
 	int iph_length = -1;
 	int trans_hl_length = 0;
 	unsigned int addr_byte[IP_ADDR_LEN];
-	int source_port;
-	int destination_port;
-	int time_to_live;
-	int sequence;
-	int ack_num;
-	int window_size;
+	int source_port = 0;
+	int destination_port = 0;
+	int time_to_live = 0;
+	unsigned long sequence = 0;
+	unsigned long ack_num = 0;
+	int window_size = 0;
 
 	int time;
 	int millis;
-	int payload_len = 0;
+	int payload_len = -2;
 	double real_time = 0;
 
 	char str_iphl[MINI_BUFLEN];
@@ -373,13 +376,13 @@ char* processPacket(FILE* trace_file){
 		   		ip_index += iph_length - ip_index;
 
 
-		   		//read out the 'offset' value for trans_hl_length
+		   		
 		   		if(protocol != 'T' && protocol != 'U'){
 		   			trans_hl_length = -1;
 		   			payload_len = -1;
 		   		}
 		   		else{
-		   			if(protocol == 'T'){
+		   			if(protocol == 'T' && (packet_length-index)>=MIN_TCP){
 		   				//Read Source port
 		   				fread(buffer, 1, PORTLEN, trace_file);
 				    	memcpy(src_port, buffer, PORTLEN);
@@ -399,14 +402,14 @@ char* processPacket(FILE* trace_file){
 				   		//Read sequence number
 				   		fread(buffer, 1, SEQLEN, trace_file);
 				    	memcpy(seq, buffer, SEQLEN);
-				    	sequence = hexToInt(seq, SEQLEN, false);
+				    	sequence = (seq[0]<<24)|(seq[1]<<16)|(seq[2]<<8)|(seq[3]);
 				   		bzero(buffer, BUFLEN);
 				   		index += SEQLEN;
 
 				   		//Read ack number
 				   		fread(buffer, 1, ACKLEN, trace_file);
 				    	memcpy(ack, buffer, ACKLEN);
-				    	ack_num = hexToInt(ack, ACKLEN, false);
+				    	ack_num = (ack[0]<<24)|(ack[1]<<16)|(ack[2]<<8)|(ack[3]);
 				   		bzero(buffer, BUFLEN);
 				   		index += ACKLEN;
 
@@ -431,12 +434,15 @@ char* processPacket(FILE* trace_file){
 				   		bzero(buffer, BUFLEN);
 				   		index += WINDOWLEN;
 
-
+				   		payload_len = ip_length - iph_length - trans_hl_length;
 			    	}
 			    	else{
-			    		trans_hl_length = UDPLEN;
+			    		if(protocol == 'U'){
+			    			trans_hl_length = UDPLEN;
+			    			payload_len = ip_length - iph_length - trans_hl_length;
+			    		}
 			    	}
-			    	payload_len = ip_length - iph_length - trans_hl_length;
+			    	
 		   		}
 		    }
 	    }
@@ -453,7 +459,7 @@ char* processPacket(FILE* trace_file){
 	    		index += BUFLEN;
 	    	}
 	    }
-	    sprintf(processed_packet, "%lf,%d,%d,%d,%d,%c,%d,%d,%s,%s,%d,%d,%d,%d,%d,%d,", real_time, ip, packet_length, ip_length, iph_length, protocol, trans_hl_length, payload_len,
+	    sprintf(processed_packet, "%lf,%d,%d,%d,%d,%c,%d,%d,%s,%s,%d,%d,%d,%d,%ld,%ld,", real_time, ip, packet_length, ip_length, iph_length, protocol, trans_hl_length, payload_len,
 	    	source_ip, destination_ip, source_port, destination_port, time_to_live, window_size, sequence, ack_num);
     }
     else{
@@ -462,6 +468,98 @@ char* processPacket(FILE* trace_file){
 
     return processed_packet;
     
+}
+
+int trafficMatrix(char* filename){
+	FILE* file = fopen(filename, "r");
+    if(file == NULL){
+    	printf("File not there");
+    	fflush(stdout);
+        return -1;
+    }
+
+    char* next = malloc(MINI_BUFLEN*2);
+
+    char source_ip[MINI_BUFLEN];
+    char dest_ip[MINI_BUFLEN];
+    char payload_len[MINI_BUFLEN];
+    char pairs[BUFLEN][MINI_BUFLEN];
+    int payloads[BUFLEN];
+
+    int total_pairs;
+    while((next = processPacket(file)) != NULL){
+    	bool tcp = false;
+    	int index = 0;
+    	int i = 0;
+		index=0;
+
+		while(next[index] != 0){
+			if(next[index] == 'T')
+				tcp = true;
+			index++;
+		}
+
+		index = 0;
+		if(tcp){
+			i = 0;
+			for(; i<(SKIP_TO_IP_ADDR); i++){
+				while(next[index] != ','){
+					index++;
+				}
+				index++;
+			}
+
+			i = 0;
+			while(next[index] != ','){
+					payload_len[i] = next[index];
+					i++;
+					index++;
+			}
+			payload_len[i] = '\0';
+
+			index++;
+    		i = 0;
+			while(next[index] != ','){
+			source_ip[i] = next[index];
+			i++;
+			index++;
+			}
+			source_ip[i] = '\0';
+
+			index++;
+    		i = 0;
+			while(next[index] != ','){
+			dest_ip[i] = next[index];
+			i++;
+			index++;
+			}
+			dest_ip[i] = '\0';
+
+			char current_pair[MINI_BUFLEN];
+			sprintf(current_pair, "%s %s", source_ip, dest_ip);
+			bool match = false;
+
+			int pairs_index = 0;
+			for(; pairs_index<total_pairs; pairs_index++){
+				if(strcmp(current_pair, pairs[pairs_index]) == 0){
+					payloads[pairs_index] += atoi(payload_len);
+					match = true;
+				}
+			}
+			if(!match){
+				sprintf(pairs[pairs_index], "%s %s", source_ip, dest_ip);
+				payloads[pairs_index] = atoi(payload_len);
+				total_pairs++;
+			}
+		}
+	}
+	int j = 0;
+	for(; j<total_pairs; j++){
+		printf("%s %d\n", pairs[j], payloads[j]);
+	}
+
+	return 0;
+
 }
 
 int tcpPrint(char* filename){
@@ -611,7 +709,6 @@ int length(char* filename){
 	char trans_hl[MINI_BUFLEN];
 	char payload_len[MINI_BUFLEN];
 	char protocol;
-	bool ip = false;; 
 
     while((next = processPacket(file)) != NULL){
     	int index = 0;
@@ -624,7 +721,6 @@ int length(char* filename){
 		time[i] = '\0';
 
 		index++;
-		ip = (next[index] == '1');
 
 		index += 2;
 		i = 0;
@@ -704,29 +800,23 @@ int length(char* filename){
 		index++;
 		i = 0;
 		if(next[index] == '-'){
-			payload_len[i] = '?';
+			if(next[index] == '1')
+				payload_len[i] = '?';
+			else
+				payload_len[i] = '-';
 			i++;
 			index += 2;
 		}
 		else{
-			if(next[index] == '0'){
-				payload_len[i] = '-';
+			while(next[index] != ','){
+				payload_len[i] = next[index];
 				i++;
 				index++;
-			}
-			else{
-				while(next[index] != ','){
-					payload_len[i] = next[index];
-					i++;
-					index++;
-				}
 			}
 		}
 		payload_len[i] = '\0';
 
-
-		if(ip)
-			printf("%s %s %s %s %c %s %s\n", time, caplen, iplen, iphlen, protocol, trans_hl, payload_len);
+		printf("%s %s %s %s %c %s %s\n", time, caplen, iplen, iphlen, protocol, trans_hl, payload_len);
     }
     //if(fclose(file)<0)
        // errexit("Error closing file", NULL);
@@ -810,7 +900,7 @@ int main(int argc, char *argv[]){
 					valid_mode++;
 					break;
 				case 'm':
-					packet_printing = true;
+					traffic_matrix = true;
 					valid_mode++;
 					break;
 				default:
@@ -823,8 +913,6 @@ int main(int argc, char *argv[]){
             errexit("ERROR: Either no flags were entered or an invalid argument was passed", NULL);
 		}
 	}
-	printf("%d\n%d\n%d\n%d\n%d\n%d\n", trace_present, summary_mode, length_analysis, packet_printing, traffic_matrix, valid_mode);
-	fflush(stdout);
 	if(!trace_present){
 		printf("ERROR: The -t flag and a valid trace file must be included to use this tool\n");
 		fflush(stdout);
@@ -848,6 +936,10 @@ int main(int argc, char *argv[]){
 		}
 		if(packet_printing){
 			if(tcpPrint(trace_file)<0)
+				errexit("ERROR: Summary mode failed. Could not find file speicified.", NULL);
+		}
+		if(traffic_matrix){
+			if(trafficMatrix(trace_file)<0)
 				errexit("ERROR: Summary mode failed. Could not find file speicified.", NULL);
 		}
 	}	
