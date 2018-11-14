@@ -79,7 +79,7 @@ int printHex(unsigned char hex[], int n){
 long hexToInt(unsigned char* hex, int n, bool byte_flip){
 	//printf("\n start \n");
 	char hex_str[MINI_BUFLEN];
-	long long integer = 0;
+	long integer = 0;
 	long x = 1;
 	int i, j;
 	bool done = false;
@@ -172,7 +172,6 @@ long hexToInt(unsigned char* hex, int n, bool byte_flip){
 			done = (i < 0);
 		}
 	}
-	//printf("integer: %lld\n", integer);
 	return integer;
 }
 
@@ -402,14 +401,14 @@ char* processPacket(FILE* trace_file){
 				   		//Read sequence number
 				   		fread(buffer, 1, SEQLEN, trace_file);
 				    	memcpy(seq, buffer, SEQLEN);
-				    	sequence = (seq[0]<<24)|(seq[1]<<16)|(seq[2]<<8)|(seq[3]);
+				    	sequence = hexToInt(seq, SEQLEN, false);
 				   		bzero(buffer, BUFLEN);
 				   		index += SEQLEN;
 
 				   		//Read ack number
 				   		fread(buffer, 1, ACKLEN, trace_file);
 				    	memcpy(ack, buffer, ACKLEN);
-				    	ack_num = (ack[0]<<24)|(ack[1]<<16)|(ack[2]<<8)|(ack[3]);
+				    	ack_num = hexToInt(ack, ACKLEN, false);
 				   		bzero(buffer, BUFLEN);
 				   		index += ACKLEN;
 
@@ -459,7 +458,7 @@ char* processPacket(FILE* trace_file){
 	    		index += BUFLEN;
 	    	}
 	    }
-	    sprintf(processed_packet, "%lf,%d,%d,%d,%d,%c,%d,%d,%s,%s,%d,%d,%d,%d,%ld,%ld,", real_time, ip, packet_length, ip_length, iph_length, protocol, trans_hl_length, payload_len,
+	    sprintf(processed_packet, "%lf,%d,%d,%d,%d,%c,%d,%d,%s,%s,%d,%d,%d,%d,%lu,%lu,", real_time, ip, packet_length, ip_length, iph_length, protocol, trans_hl_length, payload_len,
 	    	source_ip, destination_ip, source_port, destination_port, time_to_live, window_size, sequence, ack_num);
     }
     else{
