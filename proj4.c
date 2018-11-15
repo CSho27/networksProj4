@@ -22,8 +22,11 @@
 #define ETH_BEGIN 12
 
 
-#define MIN_IP 34
+#define MIN_IP_LEN 34
+#define MIN_IP 20
 #define MIN_TCP 20
+#define MIN_UDP 8
+#define MAX_TCPIP 60
 
 #define IPV4_VALUE 40
 #define IPHLEN 1
@@ -45,7 +48,10 @@
 #define ACKLEN 4
 #define WINDOWLEN 2
 #define TCP_PORT 2
-#define UDPLEN 8
+#define UDPLEN 2
+#define UDP_BEGIN 4
+#define DEC_SHIFT 10
+#define OFFSET_MULT 4
 
 #define SKIP_TO_TCP 8
 #define SKIP_TO_THL 6
@@ -177,6 +183,43 @@ long hexToInt(unsigned char* hex, int n, bool byte_flip){
 	return integer;
 }
 
+int getOffset(unsigned char* hex){
+	char hex_str[MINI_BUFLEN];
+	long integer = 0;
+
+	bzero(hex_str, MINI_BUFLEN);
+	sprintf(hex_str, "%02x", hex[0]);
+
+	if(hex_str[0] >= '0' && hex_str[0] <= '9'){
+		integer = (((int) hex_str[0])-ASCII_NUM);
+	}
+	else{
+		switch(hex_str[0]){
+			case 'a':
+				integer = A_VAL;
+				break;
+			case 'b':
+				integer = B_VAL;
+				break;
+			case 'c':
+				integer = C_VAL;
+				break;
+			case 'd':
+				integer = D_VAL;
+				break;
+			case 'e':
+				integer = E_VAL;
+				break;
+			case 'f':
+				integer = F_VAL;
+				break;
+			default:
+				break;
+			}
+	}
+	return integer*OFFSET_MULT;
+}
+
 //This compares two sets of bytes and returns true if they are equal. Again, it's definitely actually comparing binary but whatever. 
 bool compareHex(unsigned char hex1[], unsigned char hex2[], int n){
 	bool same = true;
@@ -223,6 +266,7 @@ int processPacket(FILE* trace_file, char* processed_packet, int buflen){
 	int ip_length = -1;
 	int iph_length = -1;
 	int trans_hl_length = 0;
+	int udp_len;
 	unsigned int addr_byte[IP_ADDR_LEN];
 	int source_port = 0;
 	int destination_port = 0;
@@ -238,7 +282,6 @@ int processPacket(FILE* trace_file, char* processed_packet, int buflen){
 
 	//These I build strings before printing them, because they have tricky format and this helps me get them right
 	char str_iphl[MINI_BUFLEN];
-	char str_trans_hl[MINI_BUFLEN];
 	char source_ip[MINI_BUFLEN];
 	char destination_ip[MINI_BUFLEN];
 
@@ -291,7 +334,7 @@ int processPacket(FILE* trace_file, char* processed_packet, int buflen){
 		    ip = compareHex(IP, type, TYPELEN);
 
 		    //If the packet is long enough to have IP header use it
-		    if(ip && packet_length >= MIN_IP){
+		    if(ip && packet_length >= MIN_IP_LEN){
 		    	int ip_index = 0;
 
 		    	fread(buffer, 1, IPHLEN, trace_file);
@@ -392,7 +435,7 @@ int processPacket(FILE* trace_file, char* processed_packet, int buflen){
 		   			payload_len = -1;
 		   		}
 		   		else{
-		   			if(protocol == 'T' && (packet_length-index)>=MIN_TCP){
+		   			if(protocol == 'T' && (packet_length-index)>=MIN_TCP && (packet_length-index)<=MAX_TCPIP && iph_length>=MIN_IP && iph_length<=MAX_TCPIP){
 		   				//Read Source port
 		   				fread(buffer, 1, PORTLEN, trace_file);
 				    	memcpy(src_port, buffer, PORTLEN);
@@ -426,8 +469,7 @@ int processPacket(FILE* trace_file, char* processed_packet, int buflen){
 				   		//Read offset value from tcp
 			   			fread(buffer, 1, 1, trace_file);
 			    		memcpy(trans_hl, buffer, 1);
-			    		sprintf(str_trans_hl, "%02x", trans_hl[0]);
-			    		trans_hl_length = (atoi(str_trans_hl)/10)*4;
+			    		trans_hl_length = getOffset(trans_hl);
 			    		bzero(buffer, BUFLEN);
 			    		index += 1;
 
@@ -444,12 +486,34 @@ int processPacket(FILE* trace_file, char* processed_packet, int buflen){
 				   		bzero(buffer, BUFLEN);
 				   		index += WINDOWLEN;
 
-				   		payload_len = ip_length - iph_length - trans_hl_length;
+				   		if(trans_hl_length>=MIN_TCP && trans_hl_length<=MAX_TCPIP)
+				   			payload_len = ip_length - iph_length - trans_hl_length;
+				   		else
+				   			trans_hl_length = -2;
 			    	}
 			    	else{
-			    		if(protocol == 'U'){
-			    			trans_hl_length = UDPLEN;
-			    			payload_len = ip_length - iph_length - trans_hl_length;
+			    		if(protocol == 'U' && packet_length-index >= MIN_UDP){
+			    			//ignore beginning of UDP header
+					   		fread(buffer, 1, UDP_BEGIN, trace_file);
+					   		bzero(buffer, BUFLEN);
+					   		index += UDP_BEGIN;
+
+			    			//Read length value from UDP
+				   			fread(buffer, 1, UDPLEN, trace_file);
+				    		memcpy(trans_hl, buffer, UDPLEN);
+				    		memcpy(&udp_len, trans_hl, UDPLEN);
+				    		udp_len = ntohs(udp_len);
+				    		bzero(buffer, BUFLEN);
+				    		index += UDPLEN;
+
+				    		if(udp_len>=MIN_UDP){
+			    				trans_hl_length = MIN_UDP;
+			    				payload_len = ip_length - iph_length - trans_hl_length;
+				    		}
+			    			else{
+			    				trans_hl_length = -2;
+			    				payload_len = -2;
+			    			}
 			    		}
 			    		else{
 			    			if(protocol == '?')
@@ -714,6 +778,7 @@ int tcpPrint(char* filename){
 			index++;
 			}
 			ack[i] = '\0';
+
 
 			printf("%s %s %s %s %s %s %s %s %s\n", time, source_ip, source_port, dest_ip, dest_port, ttl, window, seq, ack);
 		}
